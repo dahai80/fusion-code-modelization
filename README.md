@@ -8,7 +8,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-210-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-327-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Documentation](docs/)
 
@@ -35,6 +35,11 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Incremental snapshots** | ✅ FileDelta + SnapshotManager | ✅ |
 | **Three-tier project memory** | ✅ FUSION.md (global/project/directory) | ✅ CLAUDE.md |
 | **Security sandbox** | ✅ Three-tier (readonly/manual/auto) | ✅ |
+| **Dual-stack model routing** | ✅ local/cloud + complexity routing | ✅ |
+| **Enterprise audit** | ✅ JSONL + search/export/statistics | ✅ |
+| **Cluster scheduling** | ✅ Node registration + auto-schedule | ✅ |
+| **MCP plugin platform** | ✅ Registry + lifecycle management | ✅ |
+| **Snapshot optimization** | ✅ compress/verify/auto-cleanup | ✅ |
 
 **One sentence:** Fusion-Code-Modelization is the local-first, privacy-compliant alternative to Claude Code Modernization — powered by fusion-mlx on Apple Silicon.
 
@@ -116,6 +121,9 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | `sandbox <action> [--path] [--mode]` | Security sandbox and audit (check/audit) |
 | `decompose <path> [--method] [--output]` | Microservice boundary detection (static/llm) |
 | `doc-gen <file> [--type] [--language] [--output]` | Documentation generation (module/class/api) |
+| `audit <action> [--actor] [--severity]` | Enterprise audit logging (log/search/export/stats/cleanup) |
+| `cluster <action> [--node-id] [--session-id]` | Distributed cluster scheduling (discover/dispatch/status/schedule/migrate/register/tasks) |
+| `plugin <action> [--plugin-id] [--query]` | MCP plugin platform (list/search/install/load/unload/execute/status) |
 | `version` | Show version info |
 
 ### Supported Languages
@@ -144,6 +152,7 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │                    Fusion-Code-Modelization CLI                  │
 │  analyze · transpile · refactor · test-gen · security · session  │
 │  snapshot · workflow · memory · sandbox · decompose · doc-gen    │
+│  audit · cluster · plugin                                        │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -184,6 +193,20 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │  │  │ (LLM task   │ │ (FUSION.md   │ │  client)           │  │  │
 │  │  │  decompose) │ │  3-tier)     │ │                    │  │  │
 │  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
+│  │                                                            │  │
+│  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
+│  │  │ DualStack   │ │ Enterprise   │ │ Cluster            │  │  │
+│  │  │ Client      │ │ Audit Logger │ │ Scheduler          │  │  │
+│  │  │ (local/cloud│ │ (JSONL store │ │ (node discovery,   │  │  │
+│  │  │  routing)   │ │  + export)   │ │  auto-schedule)    │  │  │
+│  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
+│  │                                                            │  │
+│  │  ┌─────────────┐ ┌──────────────┐                         │  │
+│  │  │ Plugin      │ │ Snapshot     │                         │  │
+│  │  │ Platform    │ │ Optimizer    │                         │  │
+│  │  │ (registry + │ │ (compress +  │                         │  │
+│  │  │  lifecycle) │ │  verify)     │                         │  │
+│  │  └─────────────┘ └──────────────┘                         │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ HTTP API (all model calls)
@@ -223,6 +246,18 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **Memory Context** | `memory/context.py` | LLM-enhanced memory summarization and query |
 | **Boundary Detector** | `decompose/__init__.py` | Coupling analysis + LLM-powered microservice boundary detection |
 | **Documentation Generator** | `doc_gen/__init__.py` | Module/class/API doc generation + README builder |
+| **DualStackClient** | `core/client.py` | Local/cloud dual-stack with automatic routing and fallback |
+| **ModelRouter** | `core/config.py` | Complexity-based routing (LOCAL_FIRST/CLOUD_FIRST/COMPLEXITY_BASED) |
+| **DualModelConfig** | `core/config.py` | Dual model stack configuration with routing strategy |
+| **AuditLogger** | `audit/logger.py` | Enterprise audit: log, search, export (JSON/CSV/Markdown), statistics |
+| **AuditStore** | `audit/store.py` | JSONL-based audit persistence with rotation and cleanup |
+| **AuditEntry/Filter/Report** | `audit/models.py` | Audit data models with 18 action types, 3 severity levels |
+| **ClusterScheduler** | `cluster/scheduler.py` | Node registration, task dispatch, auto-scheduling by load |
+| **NodeClient** | `cluster/node_client.py` | HTTP client for cluster node health check and task submission |
+| **NodeInfo/TaskDispatch** | `cluster/models.py` | Cluster data models with load_score property |
+| **PluginManager** | `plugin/manager.py` | Plugin lifecycle: load/unload/execute with action validation |
+| **PluginRegistry** | `plugin/registry.py` | JSON-based plugin registry with install/update/disable |
+| **PluginManifest** | `plugin/models.py` | Plugin manifest with 9 categories, 5 statuses, action schemas |
 
 ---
 
@@ -252,6 +287,11 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **China compliance** | ❌ Violates data security law | ✅ **Full compliance** |
 | **Zero API cost** | ❌ Enterprise subscription | ✅ **Free** |
 | **Gitee/GitLab support** | ❌ GitHub only | ✅ **All platforms** |
+| **Dual-stack model routing** | ✅ | ✅ **local/cloud + fallback** |
+| **Enterprise audit system** | ✅ | ✅ **JSONL + export** |
+| **Cluster scheduling** | ✅ | ✅ **auto-schedule by load** |
+| **MCP plugin platform** | ✅ | ✅ **registry + lifecycle** |
+| **Snapshot optimization** | ✅ | ✅ **compress/verify/cleanup** |
 
 ---
 
@@ -269,7 +309,7 @@ pytest tests/ --cov=fusion_code_modelization
 ```
 
 ### Test Stats
-- **210 tests**, 0 failures
+- **327 tests**, 0 failures
 - **96%+ statement coverage**
 - **Python 3.12+** compatible
 

@@ -179,3 +179,69 @@ class TestSnapshotManager:
         paths = [d.path for d in snap.deltas]
         assert "main.py" in paths
         assert not any(".git" in pa for pa in paths)
+
+    # ── Phase 3: Snapshot enhancements ──
+
+    def test_get_storage_stats(self, manager):
+        manager.create_snapshot(label="v1")
+        stats = manager.get_storage_stats()
+        assert stats["snapshot_count"] >= 1
+        assert stats["total_size_bytes"] > 0
+        assert "total_size_mb" in stats
+        assert stats["snapshot_dir"] == str(manager.snapshot_dir)
+
+    def test_get_storage_stats_empty(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "main.py").write_text("x=1\n", encoding="utf-8")
+        mgr = SnapshotManager(proj, snapshot_dir=tmp_path / "snaps")
+        stats = mgr.get_storage_stats()
+        assert stats["snapshot_count"] == 0
+        assert stats["total_size_bytes"] == 0
+
+    def test_auto_cleanup_by_age(self, manager):
+        manager.create_snapshot(label="old")
+        removed = manager.auto_cleanup(max_age_days=0)
+        assert removed >= 1
+
+    def test_auto_cleanup_by_count(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "main.py").write_text("x=1\n", encoding="utf-8")
+        snap_dir = tmp_path / "snaps"
+        mgr = SnapshotManager(proj, snapshot_dir=snap_dir)
+        for i in range(5):
+            mgr.create_snapshot(label=f"v{i}")
+        removed = mgr.auto_cleanup(max_age_days=365, max_snapshots=2)
+        assert removed >= 3
+
+    def test_compress_snapshot(self, manager):
+        snap = manager.create_snapshot(label="compress_me")
+        result = manager.compress_snapshot(snap.snapshot_id)
+        assert result is True
+        gz_file = manager.snapshot_dir / f"{snap.snapshot_id}.json.gz"
+        assert gz_file.exists()
+        json_file = manager.snapshot_dir / f"{snap.snapshot_id}.json"
+        assert not json_file.exists()
+
+    def test_compress_snapshot_not_found(self, manager):
+        result = manager.compress_snapshot("snap_nonexistent")
+        assert result is False
+
+    def test_verify_snapshot_valid(self, manager, project_dir):
+        snap = manager.create_snapshot(label="verify_me")
+        result = manager.verify_snapshot(snap.snapshot_id)
+        assert result["valid"] is True
+        assert result["delta_count"] >= 1
+        assert result["issues"] == []
+
+    def test_verify_snapshot_not_found(self, manager):
+        result = manager.verify_snapshot("snap_nonexistent")
+        assert result["valid"] is False
+
+    def test_verify_snapshot_missing_file(self, manager, project_dir):
+        (project_dir / "temp.py").write_text("temp\n", encoding="utf-8")
+        snap = manager.create_snapshot(label="with_temp")
+        (project_dir / "temp.py").unlink()
+        result = manager.verify_snapshot(snap.snapshot_id)
+        assert any("missing" in issue for issue in result["issues"])

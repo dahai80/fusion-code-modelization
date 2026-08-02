@@ -190,6 +190,79 @@ class SnapshotManager:
         latest = snapshots[-1]
         return self.load_snapshot(latest["snapshot_id"])
 
+    def get_storage_stats(self) -> dict[str, Any]:
+        snapshot_files = list(self.snapshot_dir.glob("snap_*.json"))
+        total_size = sum(f.stat().st_size for f in snapshot_files if f.is_file())
+        compressed_files = list(self.snapshot_dir.glob("snap_*.json.gz"))
+        compressed_size = sum(f.stat().st_size for f in compressed_files if f.is_file())
+        return {
+            "snapshot_count": len(snapshot_files),
+            "compressed_count": len(compressed_files),
+            "total_size_bytes": total_size + compressed_size,
+            "total_size_mb": round((total_size + compressed_size) / (1024 * 1024), 2),
+            "snapshot_dir": str(self.snapshot_dir),
+        }
+
+    def auto_cleanup(self, max_age_days: int = 30, max_snapshots: int = 50) -> int:
+        import time as _time
+
+        removed = 0
+        snapshots = self.list_snapshots()
+        cutoff = _time.time() - (max_age_days * 86400)
+        for s in snapshots:
+            if s["created_at"] < cutoff:
+                self.delete_snapshot(s["snapshot_id"])
+                removed += 1
+        if len(snapshots) - removed > max_snapshots:
+            remaining = [s for s in snapshots if s["created_at"] >= cutoff]
+            remaining.sort(key=lambda s: s["created_at"])
+            excess = len(remaining) - max_snapshots
+            for s in remaining[:excess]:
+                self.delete_snapshot(s["snapshot_id"])
+                removed += 1
+        logger.info(
+            "auto_cleanup: removed %d snapshots (max_age=%d days, max_count=%d)", removed, max_age_days, max_snapshots
+        )
+        return removed
+
+    def compress_snapshot(self, snapshot_id: str) -> bool:
+        import gzip
+        import shutil
+
+        src = self.snapshot_dir / f"{snapshot_id}.json"
+        dst = self.snapshot_dir / f"{snapshot_id}.json.gz"
+        if not src.exists():
+            logger.error("compress_snapshot: %s not found", snapshot_id)
+            return False
+        with open(src, "rb") as f_in, gzip.open(dst, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        src.unlink()
+        logger.info("compressed snapshot %s: %s -> %s", snapshot_id, src, dst)
+        return True
+
+    def verify_snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        snapshot = self.load_snapshot(snapshot_id)
+        if not snapshot:
+            return {"valid": False, "error": "snapshot not found"}
+        issues: list[str] = []
+        for delta in snapshot.deltas:
+            if delta.is_deleted:
+                continue
+            target = self.project_dir / delta.path
+            if delta.is_new:
+                if not target.exists():
+                    issues.append(f"new file missing: {delta.path}")
+            elif delta.diff:
+                current = self._read_file(target)
+                if current is None:
+                    issues.append(f"modified file missing: {delta.path}")
+        return {
+            "valid": len(issues) == 0,
+            "snapshot_id": snapshot_id,
+            "delta_count": len(snapshot.deltas),
+            "issues": issues,
+        }
+
     def _reconstruct_from_diff(self, delta: FileDelta) -> str:
         if delta.diff:
             from .delta import apply_delta

@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def main():
@@ -93,6 +93,39 @@ def main():
     dg.add_argument("--language", default="", help="Programming language")
     dg.add_argument("--output", default="", help="Output file path")
 
+    # audit
+    au = sub.add_parser("audit", help="Enterprise audit system")
+    au.add_argument("action", choices=["log", "search", "export", "stats", "cleanup"])
+    au.add_argument("--action-type", default="", help="Filter by action type")
+    au.add_argument("--actor", default="", help="Filter by actor")
+    au.add_argument("--severity", default="", choices=["info", "warning", "critical"], help="Filter by severity")
+    au.add_argument("--start-time", default="", help="Start time filter (ISO format)")
+    au.add_argument("--end-time", default="", help="End time filter (ISO format)")
+    au.add_argument("--format", default="json", choices=["json", "csv", "markdown"], help="Export format")
+    au.add_argument("--output", default="", help="Output file path")
+    au.add_argument("--max-age-days", type=int, default=90, help="Cleanup: max age in days")
+
+    # cluster
+    cl = sub.add_parser("cluster", help="Distributed cluster scheduling")
+    cl.add_argument("action", choices=["discover", "dispatch", "status", "schedule", "migrate", "register", "tasks"])
+    cl.add_argument("--node-id", default="", help="Target node ID")
+    cl.add_argument("--host", default="localhost", help="Node host")
+    cl.add_argument("--port", type=int, default=11434, help="Node port")
+    cl.add_argument("--session-id", default="", help="Session ID to dispatch")
+    cl.add_argument("--from-node", default="", help="Source node for migration")
+    cl.add_argument("--to-node", default="", help="Target node for migration")
+    cl.add_argument("--description", default="", help="Task description")
+    cl.add_argument("--require-gpu", action="store_true", help="Require GPU for scheduling")
+
+    # plugin
+    pl = sub.add_parser("plugin", help="MCP plugin platform")
+    pl.add_argument("action", choices=["list", "search", "install", "load", "unload", "execute", "status"])
+    pl.add_argument("--plugin-id", default="", help="Plugin ID")
+    pl.add_argument("--name", default="", help="Plugin name for registration")
+    pl.add_argument("--category", default="", help="Filter by category")
+    pl.add_argument("--action-name", default="", help="Action to execute")
+    pl.add_argument("--query", default="", help="Search query")
+
     # version
     sub.add_parser("version", help="Show version")
 
@@ -115,6 +148,9 @@ def main():
         "sandbox": lambda: _cmd_sandbox(args),
         "decompose": lambda: asyncio.run(_cmd_decompose(args)),
         "doc-gen": lambda: asyncio.run(_cmd_doc_gen(args)),
+        "audit": lambda: asyncio.run(_cmd_audit(args)),
+        "cluster": lambda: asyncio.run(_cmd_cluster(args)),
+        "plugin": lambda: _cmd_plugin(args),
     }
     dispatch[args.command]()
 
@@ -350,3 +386,128 @@ async def _cmd_doc_gen(args):
             print(result["documentation"])
     else:
         print(f"Error: {result.get('error', 'Unknown')}")
+
+
+async def _cmd_audit(args):
+    from fusion_code_modelization.audit import AuditAction, AuditFilter, AuditLogger, AuditSeverity
+
+    logger_inst = AuditLogger()
+    if args.action == "log":
+        action = AuditAction(args.action_type) if args.action_type else AuditAction.CUSTOM
+        severity = AuditSeverity(args.severity) if args.severity else AuditSeverity.INFO
+        entry = logger_inst.log_operation(action=action, target=args.output or "cli", severity=severity)
+        print(f"Logged: {entry.entry_id}")
+    elif args.action == "search":
+        filters = AuditFilter(
+            actor=args.actor,
+            severity=AuditSeverity(args.severity) if args.severity else None,
+            start_time=args.start_time,
+            end_time=args.end_time,
+        )
+        results = logger_inst.search(filters=filters)
+        print(f"Found {len(results)} entries:")
+        for e in results:
+            print(f"  [{e.severity.value}] {e.timestamp} {e.action.value} {e.target}")
+    elif args.action == "export":
+        filters = AuditFilter(
+            actor=args.actor,
+            severity=AuditSeverity(args.severity) if args.severity else None,
+            start_time=args.start_time,
+            end_time=args.end_time,
+        )
+        report = logger_inst.export_report(fmt=args.format, filters=filters)
+        if args.output:
+            text = json.dumps(report, indent=2) if isinstance(report, dict) else str(report)
+            Path(args.output).write_text(text, encoding="utf-8")
+            print(f"Report saved to {args.output}")
+        else:
+            print(json.dumps(report, indent=2) if isinstance(report, dict) else report)
+    elif args.action == "stats":
+        stats = logger_inst.get_statistics(start_time=args.start_time, end_time=args.end_time)
+        print(json.dumps(stats, indent=2))
+    elif args.action == "cleanup":
+        removed = logger_inst.cleanup(max_age_days=args.max_age_days)
+        print(f"Cleaned up {removed} entries older than {args.max_age_days} days")
+
+
+async def _cmd_cluster(args):
+    from fusion_code_modelization.cluster import ClusterScheduler, NodeInfo
+
+    scheduler = ClusterScheduler()
+    if args.action == "discover":
+        nodes = scheduler.discover_nodes()
+        print(f"Discovered {len(nodes)} node(s):")
+        for n in nodes:
+            print(f"  {n.node_id} {n.host}:{n.port} [{n.status.value}] load={n.load_score:.1f}%")
+    elif args.action == "register":
+        node = NodeInfo(node_id=args.node_id, host=args.host, port=args.port)
+        scheduler.register_node(node)
+        print(f"Registered node: {node.node_id} ({node.host}:{node.port})")
+    elif args.action == "status":
+        nodes = await scheduler.get_node_status()
+        for n in nodes:
+            print(
+                f"  {n.node_id} {n.host}:{n.port} [{n.status.value}] cpu={n.cpu_percent:.0f}% mem={n.memory_percent:.0f}%"
+            )
+    elif args.action == "dispatch":
+        if not args.session_id or not args.node_id:
+            print("Error: --session-id and --node-id required for dispatch")
+            return
+        task = await scheduler.dispatch_task(args.session_id, args.node_id, args.description)
+        print(f"Dispatched: {task.task_id} -> {task.target_node} [{task.status.value}]")
+    elif args.action == "schedule":
+        if not args.session_id:
+            print("Error: --session-id required for schedule")
+            return
+        task = await scheduler.auto_schedule(args.session_id, args.description, require_gpu=args.require_gpu)
+        print(f"Scheduled: {task.task_id} -> {task.target_node} [{task.status.value}]")
+    elif args.action == "migrate":
+        if not args.session_id or not args.from_node or not args.to_node:
+            print("Error: --session-id, --from-node, --to-node required for migrate")
+            return
+        task = await scheduler.migrate_session(args.session_id, args.from_node, args.to_node)
+        print(f"Migrated: {task.task_id} {args.from_node} -> {args.to_node} [{task.status.value}]")
+    elif args.action == "tasks":
+        tasks = scheduler.list_tasks()
+        print(f"Total tasks: {len(tasks)}")
+        for t in tasks:
+            print(f"  {t.task_id} {t.session_id} -> {t.target_node} [{t.status.value}]")
+
+
+def _cmd_plugin(args):
+    from fusion_code_modelization.plugin import PluginCategory, PluginManager, PluginRegistry
+
+    registry = PluginRegistry()
+    manager = PluginManager(registry=registry)
+    if args.action == "list":
+        cat = PluginCategory(args.category) if args.category else None
+        plugins = manager.registry.list_plugins(category=cat)
+        print(f"Plugins ({len(plugins)}):")
+        for p in plugins:
+            print(f"  {p.plugin_id} {p.name} v{p.version} [{p.status.value}]")
+    elif args.action == "search":
+        results = manager.registry.search_plugins(args.query)
+        print(f"Found {len(results)} plugin(s):")
+        for p in results:
+            print(f"  {p.plugin_id} {p.name} - {p.description}")
+    elif args.action == "install":
+        result = manager.registry.install(args.plugin_id)
+        if result:
+            print(f"Installed: {result.plugin_id} v{result.version}")
+        else:
+            print(f"Plugin not found: {args.plugin_id}")
+    elif args.action == "load":
+        ok = manager.load(args.plugin_id)
+        print(f"Load {'succeeded' if ok else 'failed'}: {args.plugin_id}")
+    elif args.action == "unload":
+        ok = manager.unload(args.plugin_id)
+        print(f"Unload {'succeeded' if ok else 'failed'}: {args.plugin_id}")
+    elif args.action == "execute":
+        if not args.plugin_id or not args.action_name:
+            print("Error: --plugin-id and --action-name required for execute")
+            return
+        result = manager.execute(args.plugin_id, args.action_name)
+        print(json.dumps(result, indent=2))
+    elif args.action == "status":
+        status = manager.get_plugin_status()
+        print(json.dumps(status, indent=2))

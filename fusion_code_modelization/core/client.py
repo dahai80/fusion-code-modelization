@@ -4,11 +4,14 @@ import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from .config import ModelConfig
+
+if TYPE_CHECKING:
+    from .config import DualModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -128,3 +131,76 @@ class MLXClient:
         if result["status"] == "completed":
             return result["content"]
         raise RuntimeError(result.get("error", "Unknown error"))
+
+
+class DualStackClient:
+    def __init__(self, dual_config: DualModelConfig | None = None):
+        from .config import DualModelConfig, ModelRouter
+
+        self.dual_config = dual_config or DualModelConfig()
+        self._router = ModelRouter(self.dual_config)
+        self._local_client = MLXClient(self.dual_config.local_config)
+        self._cloud_client = MLXClient(self.dual_config.cloud_config)
+        self._active_stack: str = "local"
+        logger.info("DualStackClient initialized: strategy=%s", self.dual_config.routing_strategy.value)
+
+    @property
+    def active_stack(self) -> str:
+        return self._active_stack
+
+    def switch_stack(self, stack: str) -> None:
+        from .config import ModelStack
+
+        valid = {ModelStack.LOCAL.value, ModelStack.CLOUD.value}
+        if stack not in valid:
+            raise ValueError(f"Invalid stack '{stack}', must be one of {valid}")
+        self._active_stack = stack
+        logger.info("switched model stack to: %s", stack)
+
+    def _get_client(self, stack: str | None = None) -> MLXClient:
+        from .config import ModelStack
+
+        target = stack or self._active_stack
+        if target == ModelStack.CLOUD.value:
+            return self._cloud_client
+        return self._local_client
+
+    async def smart_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        from .config import ModelStack
+
+        prompt_text = " ".join(m.get("content", "") for m in messages)
+        stack = self._router.route(prompt_text)
+        client = self._get_client(stack.value)
+        logger.info("smart_chat routed to %s stack", stack.value)
+        result = await client.chat(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        if result["status"] == "failed" and self.dual_config.fallback_enabled:
+            fallback = ModelStack.CLOUD if stack == ModelStack.LOCAL else ModelStack.LOCAL
+            fallback_client = self._get_client(fallback.value)
+            logger.warning("primary %s failed, falling back to %s", stack.value, fallback.value)
+            result = await fallback_client.chat(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+            if result["status"] == "completed":
+                result["routed_stack"] = fallback.value
+        else:
+            if result["status"] == "completed":
+                result["routed_stack"] = stack.value
+        return result

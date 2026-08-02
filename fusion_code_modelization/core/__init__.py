@@ -1,4 +1,20 @@
-from .client import MLXClient
-from .config import ModelConfig
+from .client import DualStackClient, MLXClient
+from .config import (
+    DualModelConfig,
+    ModelConfig,
+    ModelRouter,
+    ModelStack,
+    RoutingStrategy,
+    get_model_config,
+)
 
-__all__ = ["MLXClient", "ModelConfig"]
+__all__ = [
+    "MLXClient",
+    "DualStackClient",
+    "ModelConfig",
+    "DualModelConfig",
+    "ModelRouter",
+    "ModelStack",
+    "RoutingStrategy",
+    "get_model_config",
+]
