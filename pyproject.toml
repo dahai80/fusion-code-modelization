@@ -1,6 +1,6 @@
 [project]
 name = "fusion-code-modenization"
-version = "0.3.0"
+version = "0.4.0"
 description = "Fusion-Code-Modenization — Legacy code modernization and cross-language migration powered by fusion-mlx"
 requires-python = ">=3.12"
 dependencies = [

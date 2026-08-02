@@ -8,7 +8,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-327-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-400+-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Documentation](docs/)
 
@@ -40,6 +40,11 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Cluster scheduling** | ✅ Node registration + auto-schedule | ✅ |
 | **MCP plugin platform** | ✅ Registry + lifecycle management | ✅ |
 | **Snapshot optimization** | ✅ compress/verify/auto-cleanup | ✅ |
+| **Benchmark suites** | ✅ Code quality, performance, migration, security benchmarks | ✅ |
+| **Cluster load balancing** | ✅ 4 strategies (round-robin/least-loaded/weighted/affinity) | ✅ |
+| **Offline deployment** | ✅ Full-offline/semi-offline/online with capability matrix | ✅ |
+| **Full-chain traceability** | ✅ Artifact tracking with forward/backward BFS traversal | ✅ |
+| **Agent cross-machine comm** | ✅ Channel-based collaboration with conflict resolution | ✅ |
 
 **One sentence:** Fusion-Code-Modelization is the local-first, privacy-compliant alternative to Claude Code Modernization — powered by fusion-mlx on Apple Silicon.
 
@@ -124,6 +129,11 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | `audit <action> [--actor] [--severity]` | Enterprise audit logging (log/search/export/stats/cleanup) |
 | `cluster <action> [--node-id] [--session-id]` | Distributed cluster scheduling (discover/dispatch/status/schedule/migrate/register/tasks) |
 | `plugin <action> [--plugin-id] [--query]` | MCP plugin platform (list/search/install/load/unload/execute/status) |
+| `benchmark <action> [--suite] [--report-id]` | Run benchmark suites and compare reports (run/list/compare/history) |
+| `loadbalancer <action> [--strategy]` | Cluster load balancing (overview/rebalance/predict/select) |
+| `offline <action> [--mode] [--package-dir]` | Offline deployment management (detect/capabilities/prepare/validate/restore) |
+| `trace <action> [--artifact-type] [--artifact-id]` | End-to-end traceability (create/link/forward/backward/report) |
+| `agent-comm <action> [--agents] [--collab-id]` | Agent cross-machine communication (create/submit/conflict/resolve/complete/list/status) |
 | `version` | Show version info |
 
 ### Supported Languages
@@ -152,7 +162,8 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │                    Fusion-Code-Modelization CLI                  │
 │  analyze · transpile · refactor · test-gen · security · session  │
 │  snapshot · workflow · memory · sandbox · decompose · doc-gen    │
-│  audit · cluster · plugin                                        │
+│  audit · cluster · plugin · benchmark · loadbalancer · offline   │
+│  trace · agent-comm                                              │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -207,6 +218,12 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │  │  │ (registry + │ │ (compress +  │                         │  │
 │  │  │  lifecycle) │ │  verify)     │                         │  │
 │  │  └─────────────┘ └──────────────┘                         │  │
+│  │                                                            │  │
+│  │  ┌─────────────────────── V2.0 ──────────────────────────┐│  │
+│  │  │ Benchmark  │ LoadBalancer│ Offline    │ Trace  │AgentComm││
+│  │  │ Suites &   │ 4-strategy │ Deploy     │ Full-  │Channel ││
+│  │  │ Reports    │ scheduling │ packages   │ chain  │Coord.  ││
+│  │  └────────────┴────────────┴────────────┴────────┴────────┘│  │
 │  └────────────────────────────────────────────────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ HTTP API (all model calls)
@@ -258,6 +275,16 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **PluginManager** | `plugin/manager.py` | Plugin lifecycle: load/unload/execute with action validation |
 | **PluginRegistry** | `plugin/registry.py` | JSON-based plugin registry with install/update/disable |
 | **PluginManifest** | `plugin/models.py` | Plugin manifest with 9 categories, 5 statuses, action schemas |
+| **BenchmarkRunner** | `benchmark/runner.py` | Benchmark suite execution, report generation, trend comparison |
+| **PredefinedBenchmarkSuites** | `benchmark/suite.py` | Code quality, performance, migration quality, security suites |
+| **LoadBalancer** | `loadbalancer/balancer.py` | 4-strategy cluster load balancing with capacity prediction |
+| **OfflineManager** | `offline/manager.py` | Offline mode detection, package prepare/validate/restore |
+| **OfflineCache** | `offline/cache.py` | Model/plugin cache with eviction and size management |
+| **TraceTracker** | `trace/tracker.py` | BFS forward/backward artifact tracing, coverage reports |
+| **TraceStore** | `trace/store.py` | JSONL-based trace graph with adjacency lists |
+| **CollaborationCoordinator** | `agent_comm/coordinator.py` | Multi-agent collaboration with conflict detection/resolution |
+| **AgentChannelManager** | `agent_comm/channel.py` | Channel-based message routing with broadcast support |
+| **OfflineConfig** | `core/config.py` | Offline mode configuration with auto-detect |
 
 ---
 
@@ -292,6 +319,11 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **Cluster scheduling** | ✅ | ✅ **auto-schedule by load** |
 | **MCP plugin platform** | ✅ | ✅ **registry + lifecycle** |
 | **Snapshot optimization** | ✅ | ✅ **compress/verify/cleanup** |
+| **Benchmark suites** | ❌ | ✅ **quality/perf/migration/security** |
+| **Cluster load balancing** | ❌ | ✅ **4 strategies + capacity prediction** |
+| **Offline deployment** | ❌ | ✅ **full/semi/online with packages** |
+| **Full-chain traceability** | ❌ | ✅ **BFS forward/backward tracing** |
+| **Agent cross-machine comm** | ❌ | ✅ **channels + conflict resolution** |
 
 ---
 
@@ -309,7 +341,7 @@ pytest tests/ --cov=fusion_code_modelization
 ```
 
 ### Test Stats
-- **327 tests**, 0 failures
+- **400+ tests**, 0 failures
 - **96%+ statement coverage**
 - **Python 3.12+** compatible
 

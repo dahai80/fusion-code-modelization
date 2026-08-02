@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 def main():
@@ -129,6 +129,56 @@ def main():
     # version
     sub.add_parser("version", help="Show version")
 
+    # benchmark
+    bm = sub.add_parser("benchmark", help="Run benchmark suites and compare reports")
+    bm.add_argument("action", choices=["run", "list", "compare", "history"])
+    bm.add_argument("--suite", default="", help="Benchmark suite name")
+    bm.add_argument("--report-id", default="", help="Report ID for compare/history")
+    bm.add_argument("--report-a", default="", help="First report ID for compare")
+    bm.add_argument("--report-b", default="", help="Second report ID for compare")
+    bm.add_argument("--limit", type=int, default=10, help="History limit")
+
+    # loadbalancer
+    lb = sub.add_parser("loadbalancer", help="Cluster load balancing and scheduling")
+    lb.add_argument("action", choices=["overview", "rebalance", "predict", "select"])
+    lb.add_argument(
+        "--strategy",
+        default="least_loaded",
+        choices=["round_robin", "least_loaded", "weighted_capacity", "affinity_based"],
+        help="Strategy",
+    )
+    lb.add_argument("--session-id", default="", help="Session ID for select")
+    lb.add_argument("--duration-hours", type=float, default=1.0, help="Hours to predict")
+
+    # offline
+    of = sub.add_parser("offline", help="Offline deployment management")
+    of.add_argument("action", choices=["detect", "capabilities", "prepare", "validate", "restore"])
+    of.add_argument("--mode", default="", choices=["full_offline", "semi_offline", "online"], help="Target mode")
+    of.add_argument("--package-dir", default="", help="Package directory")
+    of.add_argument("--name", default="offline-package", help="Package name")
+    of.add_argument("--model-ids", default="", help="Comma-separated model IDs")
+    of.add_argument("--plugin-ids", default="", help="Comma-separated plugin IDs")
+
+    # trace
+    tr = sub.add_parser("trace", help="End-to-end traceability tracking")
+    tr.add_argument("action", choices=["create", "link", "forward", "backward", "report"])
+    tr.add_argument("--artifact-type", default="", help="Artifact type")
+    tr.add_argument("--artifact-id", default="", help="Artifact ID")
+    tr.add_argument("--name", default="", help="Node name")
+    tr.add_argument("--source-id", default="", help="Source node ID")
+    tr.add_argument("--target-id", default="", help="Target node ID")
+    tr.add_argument("--relationship", default="", help="Relationship type")
+    tr.add_argument("--max-depth", type=int, default=10, help="Max trace depth")
+
+    # agent-comm
+    ac = sub.add_parser("agent-comm", help="Agent cross-machine communication")
+    ac.add_argument("action", choices=["create", "submit", "conflict", "resolve", "complete", "list", "status"])
+    ac.add_argument("--description", default="", help="Collaboration task description")
+    ac.add_argument("--agents", default="", help="Comma-separated agent IDs")
+    ac.add_argument("--collab-id", default="", help="Collaboration ID")
+    ac.add_argument("--agent-id", default="", help="Agent ID")
+    ac.add_argument("--resolution", default="", help="Conflict resolution description")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -151,6 +201,11 @@ def main():
         "audit": lambda: asyncio.run(_cmd_audit(args)),
         "cluster": lambda: asyncio.run(_cmd_cluster(args)),
         "plugin": lambda: _cmd_plugin(args),
+        "benchmark": lambda: _cmd_benchmark(args),
+        "loadbalancer": lambda: _cmd_loadbalancer(args),
+        "offline": lambda: _cmd_offline(args),
+        "trace": lambda: _cmd_trace(args),
+        "agent-comm": lambda: _cmd_agent_comm(args),
     }
     dispatch[args.command]()
 
@@ -511,3 +566,218 @@ def _cmd_plugin(args):
     elif args.action == "status":
         status = manager.get_plugin_status()
         print(json.dumps(status, indent=2))
+
+
+def _cmd_benchmark(args):
+    from fusion_code_modelization.benchmark import BenchmarkRunner
+
+    runner = BenchmarkRunner()
+    if args.action == "list":
+        for name in runner.list_suites():
+            suite = runner.get_suite(name)
+            if suite:
+                print(f"  {name}: {len(suite.items)} items [{suite.category.value}]")
+    elif args.action == "run":
+        if not args.suite:
+            print("Error: --suite required for run")
+            return
+        report = runner.run_suite(args.suite, score_fn={})
+        print(f"Report: {report.report_id}")
+        print(f"  Passed: {report.passed_count}, Failed: {report.failed_count}, Skipped: {report.skipped_count}")
+        print(f"  Average score: {report.average_score:.1f}%")
+        for r in report.results:
+            print(f"    [{r.status.value}] {r.item_id}: {r.score:.1f}/{r.target_score:.1f}")
+    elif args.action == "compare":
+        if not args.report_a or not args.report_b:
+            print("Error: --report-a and --report-b required for compare")
+            return
+        comparison = runner.compare_reports(args.report_a, args.report_b)
+        print(f"Regressions: {len(comparison['regressions'])}")
+        print(f"Improvements: {len(comparison['improvements'])}")
+        print(f"Unchanged: {len(comparison['unchanged'])}")
+    elif args.action == "history":
+        if not args.suite:
+            print("Error: --suite required for history")
+            return
+        trends = runner.get_historical_trends(args.suite, limit=args.limit)
+        for t in trends:
+            print(f"  {t['report_id']}: avg={t['average_score']:.1f}% passed={t['passed_count']}")
+
+
+def _cmd_loadbalancer(args):
+    from fusion_code_modelization.loadbalancer import BalancerConfig, LoadBalancer, LoadBalanceStrategy
+
+    config = BalancerConfig(strategy=LoadBalanceStrategy(args.strategy))
+    lb = LoadBalancer(config=config)
+    if args.action == "overview":
+        overview = lb.get_cluster_overview()
+        print(json.dumps(overview, indent=2))
+    elif args.action == "rebalance":
+        suggestions = lb.rebalance()
+        if suggestions:
+            for s in suggestions:
+                print(f"  Move {s['tasks_to_move']} tasks from {s['overloaded_node']} to {s['underloaded_node']}")
+        else:
+            print("No rebalance needed")
+    elif args.action == "predict":
+        prediction = lb.predict_capacity(duration_hours=args.duration_hours)
+        print(json.dumps(prediction, indent=2))
+    elif args.action == "select":
+        if not args.session_id:
+            print("Error: --session-id required for select")
+            return
+        decision = lb.select_node(session_id=args.session_id)
+        if decision:
+            print(f"Selected: {decision.selected_node} via {decision.strategy.value}")
+            print(f"  Reason: {decision.reason}")
+        else:
+            print("No node available")
+
+
+def _cmd_offline(args):
+    from fusion_code_modelization.offline import OfflineManager
+
+    mgr = OfflineManager()
+    if args.action == "detect":
+        mode = mgr.detect_mode()
+        print(f"Detected mode: {mode.value}")
+    elif args.action == "capabilities":
+        caps = mgr.get_available_capabilities()
+        print(f"Available capabilities ({len(caps)}):")
+        for c in caps:
+            print(f"  {c.value}")
+    elif args.action == "prepare":
+        from fusion_code_modelization.offline import OfflineMode
+
+        mode = OfflineMode(args.mode) if args.mode else None
+        model_ids = args.model_ids.split(",") if args.model_ids else []
+        plugin_ids = args.plugin_ids.split(",") if args.plugin_ids else []
+        package = mgr.prepare_offline_package(
+            output_dir=args.package_dir or ".fusion/offline_packages",
+            name=args.name,
+            model_ids=model_ids,
+            plugin_ids=plugin_ids,
+        )
+        print(f"Package prepared: {package.package_id}")
+        print(f"  Mode: {package.mode.value}, Size: {package.size_mb:.1f} MB")
+    elif args.action == "validate":
+        if not args.package_dir:
+            print("Error: --package-dir required for validate")
+            return
+        valid = mgr.validate_package(args.package_dir)
+        print(f"Package valid: {valid}")
+    elif args.action == "restore":
+        if not args.package_dir:
+            print("Error: --package-dir required for restore")
+            return
+        pkg = mgr.restore_from_package(args.package_dir)
+        if pkg:
+            print(f"Restored: {pkg.package_id} ({pkg.mode.value})")
+        else:
+            print("Restore failed")
+
+
+def _cmd_trace(args):
+    from fusion_code_modelization.trace import TraceTracker
+
+    tracker = TraceTracker()
+    if args.action == "create":
+        if not args.artifact_type or not args.artifact_id:
+            print("Error: --artifact-type and --artifact-id required")
+            return
+        node = tracker.create_node(
+            artifact_type=args.artifact_type,
+            artifact_id=args.artifact_id,
+            name=args.name or args.artifact_id,
+        )
+        print(f"Created node: {node.node_id} ({node.artifact_type.value})")
+    elif args.action == "link":
+        if not args.source_id or not args.target_id or not args.relationship:
+            print("Error: --source-id, --target-id, --relationship required")
+            return
+        edge = tracker.link_nodes(args.source_id, args.target_id, args.relationship)
+        if edge:
+            print(f"Linked: {args.source_id} -> {args.target_id} via {args.relationship}")
+        else:
+            print("Link failed — check node IDs")
+    elif args.action == "forward":
+        if not args.artifact_id:
+            print("Error: --artifact-id required")
+            return
+        chain = tracker.trace_forward(args.artifact_id, max_depth=args.max_depth)
+        if chain:
+            print(f"Forward trace: {len(chain.nodes)} nodes, {len(chain.edges)} edges, depth={chain.depth}")
+            for n in chain.nodes:
+                print(f"  {n.node_id} [{n.artifact_type.value}] {n.name}")
+        else:
+            print("No forward trace found")
+    elif args.action == "backward":
+        if not args.artifact_id:
+            print("Error: --artifact-id required")
+            return
+        chain = tracker.trace_backward(args.artifact_id, max_depth=args.max_depth)
+        if chain:
+            print(f"Backward trace: {len(chain.nodes)} nodes, {len(chain.edges)} edges, depth={chain.depth}")
+            for n in chain.nodes:
+                print(f"  {n.node_id} [{n.artifact_type.value}] {n.name}")
+        else:
+            print("No backward trace found")
+    elif args.action == "report":
+        report = tracker.generate_report()
+        print(report.to_markdown())
+
+
+def _cmd_agent_comm(args):
+    from fusion_code_modelization.agent_comm import CollaborationCoordinator
+
+    coordinator = CollaborationCoordinator()
+    if args.action == "create":
+        if not args.description or not args.agents:
+            print("Error: --description and --agents required")
+            return
+        agent_ids = [a.strip() for a in args.agents.split(",") if a.strip()]
+        task = coordinator.create_collaboration(args.description, agent_ids)
+        print(f"Created collaboration: {task.collaboration_id}")
+        print(f"  Channel: {task.channel_name}, Agents: {len(task.agent_ids)}")
+    elif args.action == "submit":
+        if not args.collab_id or not args.agent_id:
+            print("Error: --collab-id and --agent-id required")
+            return
+        ok = coordinator.submit_result(args.collab_id, args.agent_id, {"submitted_via": "cli"})
+        print(f"Submit {'succeeded' if ok else 'failed'}")
+    elif args.action == "conflict":
+        if not args.collab_id or not args.agent_id:
+            print("Error: --collab-id and --agent-id required")
+            return
+        ok = coordinator.report_conflict(args.collab_id, args.agent_id, {"reported_via": "cli"})
+        print(f"Conflict reported: {'succeeded' if ok else 'failed'}")
+    elif args.action == "resolve":
+        if not args.collab_id:
+            print("Error: --collab-id required")
+            return
+        ok = coordinator.resolve_conflict(args.collab_id, {"resolution": args.resolution or "resolved"})
+        print(f"Conflict resolved: {'succeeded' if ok else 'failed'}")
+    elif args.action == "complete":
+        if not args.collab_id:
+            print("Error: --collab-id required")
+            return
+        ok = coordinator.complete_collaboration(args.collab_id)
+        print(f"Completed: {'succeeded' if ok else 'failed'}")
+    elif args.action == "list":
+        tasks = coordinator.list_tasks()
+        print(f"Collaborations ({len(tasks)}):")
+        for t in tasks:
+            print(f"  {t.collaboration_id} [{t.status.value}] {t.task_description[:50]}")
+    elif args.action == "status":
+        if not args.collab_id:
+            print("Error: --collab-id required")
+            return
+        task = coordinator.get_task(args.collab_id)
+        if task:
+            print(f"  ID: {task.collaboration_id}")
+            print(f"  Status: {task.status.value}")
+            print(f"  Channel: {task.channel_name}")
+            print(f"  Agents: {', '.join(task.agent_ids)}")
+            print(f"  Results: {len(task.results)} submitted")
+        else:
+            print(f"Collaboration {args.collab_id} not found")

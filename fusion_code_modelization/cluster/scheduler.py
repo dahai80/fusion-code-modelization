@@ -5,6 +5,7 @@ import logging
 import uuid
 from pathlib import Path
 
+from ..loadbalancer import BalancerConfig, LoadBalancer, LoadBalanceStrategy, LoadMetric
 from .models import NodeInfo, NodeStatus, TaskDispatch, TaskDispatchStatus
 from .node_client import NodeClient
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterScheduler:
-    def __init__(self, cluster_dir: str = ".fusion/cluster"):
+    def __init__(self, cluster_dir: str = ".fusion/cluster", enable_loadbalancer: bool = True):
         self.cluster_dir = Path(cluster_dir)
         self.cluster_dir.mkdir(parents=True, exist_ok=True)
         self._nodes_file = self.cluster_dir / "nodes.json"
@@ -20,6 +21,12 @@ class ClusterScheduler:
         self._nodes: dict[str, NodeInfo] = {}
         self._tasks: dict[str, TaskDispatch] = {}
         self._node_client = NodeClient()
+        self._loadbalancer: LoadBalancer | None = None
+        if enable_loadbalancer:
+            self._loadbalancer = LoadBalancer(
+                config=BalancerConfig(strategy=LoadBalanceStrategy.LEAST_LOADED),
+                state_dir=str(self.cluster_dir / "lb_state"),
+            )
         self._load_state()
 
     def _load_state(self) -> None:
@@ -100,6 +107,8 @@ class ClusterScheduler:
         return task
 
     async def auto_schedule(self, session_id: str, description: str = "", require_gpu: bool = False) -> TaskDispatch:
+        if self._loadbalancer:
+            return await self._smart_dispatch(session_id, description, require_gpu)
         candidates = [n for n in self._nodes.values() if n.status == NodeStatus.ONLINE]
         if require_gpu:
             candidates = [n for n in candidates if n.gpu_memory_percent < 80.0]
@@ -118,6 +127,62 @@ class ClusterScheduler:
         best = min(candidates, key=lambda n: n.load_score)
         logger.info("auto_schedule: selected %s (load=%.1f%%)", best.node_id, best.load_score)
         return await self.dispatch_task(session_id, best.node_id, description)
+
+    async def _smart_dispatch(self, session_id: str, description: str, require_gpu: bool) -> TaskDispatch:
+        self._sync_loadbalancer_metrics()
+        decision = self._loadbalancer.select_node(session_id=session_id)
+        if not decision or not decision.selected_node:
+            logger.warning("smart_dispatch: loadbalancer returned no node, falling back")
+            return await self._fallback_dispatch(session_id, description)
+        target = decision.selected_node
+        logger.info("smart_dispatch: selected %s via %s — %s", target, decision.strategy, decision.reason)
+        return await self.dispatch_task(session_id, target, description)
+
+    async def _fallback_dispatch(self, session_id: str, description: str) -> TaskDispatch:
+        candidates = [n for n in self._nodes.values() if n.status == NodeStatus.ONLINE]
+        if not candidates:
+            candidates = list(self._nodes.values())
+        if not candidates:
+            return TaskDispatch(
+                task_id=uuid.uuid4().hex[:12],
+                session_id=session_id,
+                target_node="",
+                status=TaskDispatchStatus.FAILED,
+                description=description,
+                result={"error": "no nodes available"},
+            )
+        best = min(candidates, key=lambda n: n.load_score)
+        return await self.dispatch_task(session_id, best.node_id, description)
+
+    def _sync_loadbalancer_metrics(self):
+        if not self._loadbalancer:
+            return
+        metrics = []
+        for node in self._nodes.values():
+            metrics.append(
+                LoadMetric(
+                    node_id=node.node_id,
+                    cpu_percent=node.cpu_percent,
+                    memory_percent=node.memory_percent,
+                    gpu_percent=node.gpu_memory_percent,
+                    active_tasks=node.active_tasks,
+                )
+            )
+        if metrics:
+            self._loadbalancer.update_metrics(metrics)
+
+    def cluster_health_report(self) -> dict[str, any]:
+        report: dict[str, any] = {
+            "total_nodes": len(self._nodes),
+            "online_nodes": sum(1 for n in self._nodes.values() if n.status == NodeStatus.ONLINE),
+            "total_tasks": len(self._tasks),
+            "nodes": {nid: n.to_dict() for nid, n in self._nodes.items()},
+        }
+        if self._loadbalancer:
+            self._sync_loadbalancer_metrics()
+            report["loadbalancer"] = self._loadbalancer.get_cluster_overview()
+            report["rebalance_suggestions"] = self._loadbalancer.rebalance()
+        return report
 
     async def migrate_session(self, session_id: str, from_node: str, to_node: str) -> TaskDispatch:
         logger.info("migrate_session: %s from %s to %s", session_id, from_node, to_node)

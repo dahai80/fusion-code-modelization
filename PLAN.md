@@ -1,118 +1,156 @@
-# Phase 3 (V1.5) Implementation Plan
+# Phase 4 (V2.0) Implementation Plan
 
-<!-- GateGuard: New file. Importers: none (plan doc only). Affected API: none. Data schemas: none. User instruction: "开始阶段3" — implement V1.5 differentiation per enhancement doc. -->
+<!-- GateGuard: Updated file. Importers: dev planning. Affected API: none. Data schemas: none. User instruction: "启动下一个阶段的实施" — implement V2.0 per enhancement doc. -->
 
-## Goal: Build differentiation moat per enhancement doc V1.5
+## Goal: Build V2.0 unique ecosystem moat per enhancement doc
 
-Current state: v0.2.0 with 210 tests, 9 submodules, 13 CLI commands, ruff clean, CI green.
+Current state: v0.3.0 with 327 tests, 14 submodules, 16 CLI commands, ruff clean, CI green.
 
-## V1.5 Requirements (from enhancement doc)
+## V2.0 Requirements (from enhancement doc Section 7 — 长期版本)
 
-1. **fusion-mlx deep integration** — session-level model switching, model auto-recommendation
-2. **fusion-multi-nodes cluster scheduling** — task dispatch to cluster nodes, node health monitoring
-3. **Enterprise audit system** — operation log search, compliance report export
-4. **Incremental snapshot optimization** — delta compression, storage stats, auto-cleanup
-5. **Private MCP plugin platform** — plugin registry, lifecycle management, marketplace
+1. **内置自动化测试 & 性能基准评测闭环** — Auto-test execution + benchmark scoring
+2. **集群智能负载均衡** — Auto-distribute tasks to idle nodes, smart scheduling
+3. **完整内网离线部署方案** — Offline mode, air-gapped deployment for enterprise
+4. **Fusion 全链路统一追踪** — End-to-end traceability: requirement → code → test artifact
+5. **Agent 跨机器通信协同** — Cross-node agent collaboration for mega-scale refactoring
 
 ## New Modules to Implement
 
-### Module 1: `cluster/` — Distributed Cluster Scheduling
+### Module 1: `benchmark/` — Performance Benchmark & Test Loop
 **Files:**
-- `cluster/__init__.py` — exports
-- `cluster/scheduler.py` — ClusterScheduler class
-  - `discover_nodes()` — discover cluster nodes via fusion-multi-nodes API
-  - `dispatch_task(session_id, target_node)` — dispatch session to remote node
-  - `get_node_status()` — fetch all node health/load
-  - `auto_schedule(task_requirements)` — auto-pick best node based on load
-  - `migrate_session(session_id, from_node, to_node)` — live session migration
-- `cluster/node_client.py` — NodeClient for HTTP communication with cluster nodes
-  - `health_check()` — check node availability
-  - `submit_task()` — submit task to remote node
-  - `get_task_status()` — poll task progress
-  - `fetch_result()` — retrieve completed task result
-- `cluster/sync.py` — SessionSyncManager
-  - `push_snapshot(node, snapshot_id)` — push snapshot to remote node
-  - `pull_snapshot(node, snapshot_id)` — pull snapshot from remote node
-  - `sync_project(node, project_dir)` — sync project files
+- `benchmark/__init__.py` — exports
+- `benchmark/models.py` — BenchmarkSuite, BenchmarkResult, BenchmarkReport dataclasses
+  - `BenchmarkSuite` — named benchmark collection with target metrics
+  - `BenchmarkResult` — single benchmark run result (score, duration, pass/fail, metrics dict)
+  - `BenchmarkReport` — aggregated report with summary statistics, pass rate, trend comparison
+- `benchmark/runner.py` — BenchmarkRunner class
+  - `run_suite(suite_name)` — execute all benchmarks in a suite
+  - `run_single(benchmark_id)` — execute single benchmark
+  - `compare_reports(report_a, report_b)` — compare two runs, show regressions/improvements
+  - `get_historical_trends(suite_name, limit)` — trend analysis over last N runs
+- `benchmark/suite.py` — PredefinedBenchmarkSuites
+  - Code quality metrics (complexity, duplication, coverage)
+  - Performance metrics (inference latency, throughput, memory)
+  - Migration quality metrics (syntax correctness, semantic preservation)
 
-### Module 2: `audit/` — Enterprise Audit System
+### Module 2: `loadbalancer/` — Intelligent Cluster Load Balancer
 **Files:**
-- `audit/__init__.py` — exports
-- `audit/logger.py` — AuditLogger class
-  - `log_operation(action, target, actor, details)` — structured audit log entry
-  - `search(query, filters)` — search audit logs with filters (date range, action type, actor, target)
-  - `export_report(format, filters)` — export compliance report (JSON/CSV/Markdown)
-  - `get_statistics(start_date, end_date)` — aggregate audit statistics
-- `audit/models.py` — AuditEntry, AuditFilter, AuditReport dataclasses
-- `audit/store.py` — AuditStore
-  - JSONL file persistence (extends sandbox/audit.py pattern)
-  - Rotation and retention policy
-  - Index for fast search
+- `loadbalancer/__init__.py` — exports
+- `loadbalancer/models.py` — LoadMetric, SchedulingDecision, BalancerConfig dataclasses
+  - `LoadMetric` — cpu/mem/gpu usage, active_tasks, weight
+  - `SchedulingDecision` — selected_node, reason, alternatives, estimated_wait
+  - `BalancerConfig` — strategy, thresholds, cooldown
+- `loadbalancer/strategy.py` — LoadBalanceStrategy enum + strategy implementations
+  - `ROUND_ROBIN` — simple round-robin across nodes
+  - `LEAST_LOADED` — pick node with lowest load_score
+  - `WEIGHTED_CAPACITY` — weight by hardware specs
+  - `AFFINITY_BASED` — session affinity, reuse same node when possible
+- `loadbalancer/balancer.py` — LoadBalancer class
+  - `evaluate_cluster()` — collect metrics from all cluster nodes
+  - `select_node(task_requirements)` — pick optimal node for a task
+  - `rebalance()` — redistribute tasks if cluster state changed
+  - `get_cluster_overview()` — dashboard-ready cluster health summary
+  - `predict_capacity(duration_hours)` — forecast cluster capacity
 
-### Module 3: `plugin/` — MCP Plugin Platform
+### Module 3: `offline/` — Offline / Air-Gapped Deployment
 **Files:**
-- `plugin/__init__.py` — exports
-- `plugin/registry.py` — PluginRegistry class
-  - `register(plugin_manifest)` — register a plugin
-  - `unregister(plugin_id)` — remove plugin
-  - `list_plugins(category)` — list available plugins
-  - `search_plugins(query)` — search marketplace
-  - `install(plugin_id)` — install plugin from marketplace
-  - `update(plugin_id)` — update installed plugin
-- `plugin/manager.py` — PluginManager class
-  - `load(plugin_id)` — load plugin into runtime
-  - `unload(plugin_id)` — unload plugin
-  - `execute(plugin_id, action, params)` — execute plugin action
-  - `get_plugin_status()` — runtime status of all loaded plugins
-- `plugin/models.py` — PluginManifest, PluginCategory, PluginStatus dataclasses
+- `offline/__init__.py` — exports
+- `offline/models.py` — OfflineMode, OfflineCapability, OfflinePackage dataclasses
+  - `OfflineMode` — FULL_OFFLINE / SEMI_OFFLINE / ONLINE enum
+  - `OfflineCapability` — what's available in each mode (local_model, cluster, audit, etc.)
+  - `OfflinePackage` — bundled model + plugin + config for air-gapped install
+- `offline/manager.py` — OfflineManager class
+  - `detect_mode()` — auto-detect network state, determine offline level
+  - `prepare_offline_package(output_dir)` — bundle models, plugins, configs into deployable package
+  - `restore_from_package(package_dir)` — install from offline package
+  - `get_available_capabilities()` — list what works in current mode
+  - `validate_package(package_dir)` — verify package integrity before install
+- `offline/cache.py` — OfflineCache
+  - `cache_model(model_id)` — download and cache model for offline use
+  - `cache_plugin(plugin_id)` — cache plugin for offline install
+  - `list_cached()` — show all cached resources
+  - `cleanup_cache(max_size_mb)` — evict oldest cached items
 
-### Module 4: Enhanced `core/` — Model Dual-Stack Scheduling
-**Enhance existing files:**
-- `core/config.py` — add dual-stack model config (local MLX + cloud API)
-  - `DualModelConfig` with `local_model` + `cloud_model` + `routing_strategy`
-  - `ModelRouter` — auto-select model based on task complexity
-- `core/client.py` — add `DualStackClient`
-  - Wraps MLXClient with cloud fallback
-  - `smart_chat()` — auto-route to appropriate model stack
-  - `switch_model(stack)` — explicit stack switching
+### Module 4: `trace/` — End-to-End Traceability
+**Files:**
+- `trace/__init__.py` — exports
+- `trace/models.py` — TraceNode, TraceEdge, TraceChain, TraceReport dataclasses
+  - `TraceNode` — a traceable artifact (requirement, code change, test result, deployment)
+  - `TraceEdge` — link between two nodes with relationship type
+  - `TraceChain` — full trace path from source to destination
+  - `TraceReport` — aggregated traceability report with coverage metrics
+- `trace/tracker.py` — TraceTracker class
+  - `create_node(artifact_type, artifact_id, metadata)` — register a traceable artifact
+  - `link_nodes(source_id, target_id, relationship)` — create trace link
+  - `trace_forward(artifact_id)` — trace forward from requirement to all downstream
+  - `trace_backward(artifact_id)` — trace backward from test/deployment to origin
+  - `get_trace_chain(artifact_id, direction)` — full chain in either direction
+  - `generate_report(filters)` — traceability coverage report
+- `trace/store.py` — TraceStore
+  - JSONL persistence for trace nodes and edges
+  - Graph traversal for forward/backward tracing
+  - Search and filter by artifact type, timestamp, metadata
 
-### Module 5: Enhanced `snapshot/` — Incremental Optimization
-**Enhance existing files:**
-- `snapshot/manager.py` — add:
-  - `get_storage_stats()` — disk usage, snapshot count, delta sizes
-  - `auto_cleanup(max_age_days, max_snapshots)` — retention policy
-  - `compress_snapshot(snapshot_id)` — compress old snapshots
-  - `verify_snapshot(snapshot_id)` — integrity verification
+### Module 5: `agent_comm/` — Cross-Node Agent Communication
+**Files:**
+- `agent_comm/__init__.py` — exports
+- `agent_comm/models.py` — AgentMessage, AgentChannel, CollaborationTask dataclasses
+  - `AgentMessage` — structured inter-agent message (sender, recipient, type, payload)
+  - `AgentChannel` — named communication channel between agents
+  - `CollaborationTask` — multi-agent collaborative task with role assignments
+- `agent_comm/channel.py` — AgentChannelManager
+  - `create_channel(name, participants)` — set up communication channel
+  - `send_message(channel, message)` — send message to channel
+  - `receive_messages(channel, agent_id)` — get pending messages for agent
+  - `close_channel(name)` — tear down channel
+- `agent_comm/coordinator.py` — CollaborationCoordinator
+  - `create_collaboration(task_description, agents)` — set up multi-agent collaboration
+  - `assign_roles(collaboration_id)` — auto-assign roles based on agent capabilities
+  - `monitor_progress(collaboration_id)` — track collaboration status
+  - `merge_results(collaboration_id)` — collect and merge all agent outputs
+  - `handle_conflict(collaboration_id, conflict_type)` — resolve cross-agent conflicts
+
+## Enhance Existing Modules
+
+### Enhanced `cluster/scheduler.py` — Integrate LoadBalancer
+- Add `smart_dispatch()` method that uses LoadBalancer for node selection
+- Add `cluster_health_report()` method leveraging LoadBalancer.get_cluster_overview()
+
+### Enhanced `core/config.py` — Offline Mode Support
+- Add `OfflineConfig` dataclass with mode, cache_dir, fallback_behavior
+- Add `get_runtime_config()` that respects offline mode restrictions
+
+### Enhanced `pipeline/__init__.py` — Trace Integration
+- Add `create_trace_link(source, target, relationship)` — link pipeline artifacts
+- Add `get_traceability_report()` — trace report for pipeline runs
 
 ## CLI Extensions
 
 New subcommands:
-- `cluster <action>` — discover/dispatch/status/schedule/migrate
-- `audit <action>` — log/search/export/stats
-- `plugin <action>` — list/install/unload/execute/search
+- `benchmark <action>` — run/compare/trends/suites
+- `loadbalancer <action>` — evaluate/select/overview/predict
+- `offline <action>` — detect/prepare/restore/capabilities/validate
+- `trace <action>` — create/link/forward/backward/report
+- `agent-comm <action>` — channel/send/receive/collaborate/monitor
 
-Enhanced existing:
-- `session create --node <node_id>` — create session on specific cluster node
-- `snapshot create --compress` — create compressed snapshot
-- `snapshot cleanup --max-age 30 --max-count 50` — auto-cleanup
-
-## Version Bump: 0.2.0 → 0.3.0
+## Version Bump: 0.3.0 → 0.4.0
 
 ## Implementation Order
 
-1. **audit/** — Enterprise audit (independent, no external deps, extends existing sandbox audit)
-2. **core/ enhancement** — Dual-stack model config + ModelRouter
-3. **snapshot/ enhancement** — Storage stats, auto-cleanup, compress, verify
-4. **plugin/** — MCP plugin platform
-5. **cluster/** — Distributed cluster scheduling (depends on core enhancement)
-6. **CLI extensions** — Wire up all new modules
-7. **Tests** — Full test coverage for all new code
-8. **README/docs update** — Reflect new capabilities
-9. **CI/lint** — Ensure all green
+1. **benchmark/** — Test & benchmark loop (independent, pure local logic)
+2. **loadbalancer/** — Intelligent load balancing (enhances cluster)
+3. **offline/** — Offline deployment (cross-cutting, affects core/config)
+4. **trace/** — End-to-end traceability (standalone graph engine)
+5. **agent_comm/** — Cross-node agent communication (depends on cluster)
+6. **Enhance existing** — Wire loadbalancer into cluster, offline into core, trace into pipeline
+7. **CLI extensions** — Wire up all new modules
+8. **Tests** — Full test coverage for all new code
+9. **README/docs update** — Reflect new capabilities
+10. **CI/lint** — Ensure all green
 
 ## Estimated Scope
 
-- ~5 new module files + 4 enhanced files
-- ~50-60 new tests
-- 3 new CLI subcommands + enhancements to existing ones
-- Version 0.3.0
+- ~15 new module files + 3 enhanced files
+- ~60-80 new tests
+- 5 new CLI subcommands
+- Version 0.4.0

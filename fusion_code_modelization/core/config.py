@@ -121,3 +121,43 @@ class ModelRouter:
     def get_config_for_prompt(self, prompt: str) -> ModelConfig:
         stack = self.route(prompt)
         return self.dual_config.get_config(stack)
+
+
+class OfflineMode(StrEnum):
+    FULL_OFFLINE = "full_offline"
+    SEMI_OFFLINE = "semi_offline"
+    ONLINE = "online"
+
+
+@dataclass
+class OfflineConfig:
+    mode: OfflineMode = OfflineMode.ONLINE
+    local_model_ids: list[str] = field(default_factory=lambda: ["qwen3.5-9b"])
+    cloud_fallback_enabled: bool = True
+    cache_dir: str = ".fusion/offline_cache"
+    max_cache_size_mb: float = 5000.0
+    auto_detect_mode: bool = True
+    preload_models: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode.value,
+            "local_model_ids": self.local_model_ids,
+            "cloud_fallback_enabled": self.cloud_fallback_enabled,
+            "cache_dir": self.cache_dir,
+            "max_cache_size_mb": self.max_cache_size_mb,
+            "auto_detect_mode": self.auto_detect_mode,
+            "preload_models": self.preload_models,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> OfflineConfig:
+        return cls(
+            mode=OfflineMode(data.get("mode", "online")),
+            local_model_ids=data.get("local_model_ids", ["qwen3.5-9b"]),
+            cloud_fallback_enabled=data.get("cloud_fallback_enabled", True),
+            cache_dir=data.get("cache_dir", ".fusion/offline_cache"),
+            max_cache_size_mb=data.get("max_cache_size_mb", 5000.0),
+            auto_detect_mode=data.get("auto_detect_mode", True),
+            preload_models=data.get("preload_models", []),
+        )

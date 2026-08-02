@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..trace import ArtifactType, RelationshipType, TraceTracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,6 +149,59 @@ class PipelineIntegrator:
 
     def _log(self, action: str, module: str, file: str, status: str, details: str = "") -> None:
         self._audit_logs.append(AuditLog(action=action, module=module, file=file, status=status, details=details))
+
+    def trace_artifact(
+        self, artifact_type: str, artifact_id: str, name: str, metadata: dict | None = None
+    ) -> str | None:
+        tracker = self._get_trace_tracker()
+        if not tracker:
+            return None
+        try:
+            at = ArtifactType(artifact_type)
+        except ValueError:
+            logger.warning("unknown artifact type: %s", artifact_type)
+            return None
+        node = tracker.create_node(at, artifact_id, name, metadata or {})
+        logger.info("traced artifact: %s (%s) -> node %s", name, artifact_type, node.node_id)
+        return node.node_id
+
+    def link_artifacts(
+        self, source_id: str, target_id: str, relationship: str, metadata: dict | None = None
+    ) -> str | None:
+        tracker = self._get_trace_tracker()
+        if not tracker:
+            return None
+        try:
+            rel = RelationshipType(relationship)
+        except ValueError:
+            logger.warning("unknown relationship type: %s", relationship)
+            return None
+        edge = tracker.link_nodes(source_id, target_id, rel, metadata or {})
+        logger.info("linked %s -> %s via %s", source_id, target_id, relationship)
+        return edge.edge_id if edge else None
+
+    def get_trace_forward(self, artifact_id: str, max_depth: int = 10) -> dict | None:
+        tracker = self._get_trace_tracker()
+        if not tracker:
+            return None
+        chain = tracker.trace_forward(artifact_id, max_depth)
+        return chain.to_dict() if chain else None
+
+    def get_trace_backward(self, artifact_id: str, max_depth: int = 10) -> dict | None:
+        tracker = self._get_trace_tracker()
+        if not tracker:
+            return None
+        chain = tracker.trace_backward(artifact_id, max_depth)
+        return chain.to_dict() if chain else None
+
+    def _get_trace_tracker(self) -> TraceTracker | None:
+        if not hasattr(self, "_trace_tracker"):
+            try:
+                self._trace_tracker = TraceTracker(store_dir=str(self.repo_path / ".fusion" / "trace"))
+            except Exception as e:
+                logger.warning("failed to init trace tracker: %s", e)
+                self._trace_tracker = None
+        return self._trace_tracker
 
 
 class PriorityScorer:

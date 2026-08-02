@@ -4,6 +4,8 @@ from .config import (
     ModelConfig,
     ModelRouter,
     ModelStack,
+    OfflineConfig,
+    OfflineMode,
     RoutingStrategy,
     get_model_config,
 )
@@ -15,6 +17,8 @@ __all__ = [
     "DualModelConfig",
     "ModelRouter",
     "ModelStack",
+    "OfflineConfig",
+    "OfflineMode",
     "RoutingStrategy",
     "get_model_config",
 ]
