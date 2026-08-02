@@ -1,4 +1,3 @@
-"""Code dependency analyzer — builds dependency graphs and identifies dead code."""
 from __future__ import annotations
 
 import logging
@@ -7,12 +6,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from fusion_code_modelization.core.client import MLXClient
+from fusion_code_modelization.core.config import ModelConfig
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DependencyGraph:
-    """Full dependency graph of a codebase."""
     nodes: dict[str, dict[str, Any]] = field(default_factory=dict)
     edges: list[dict[str, str]] = field(default_factory=list)
 
@@ -21,25 +22,14 @@ class DependencyGraph:
 
 
 class DependencyAnalyzer:
-    """Analyzes legacy codebases to build dependency graphs.
-
-    Identifies modules, calls, imports, dead code, and tech debt.
-    All complex analysis uses fusion-mlx for LLM-powered understanding.
-    """
-
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1"):
-        self.mlx_url = mlx_url.rstrip("/")
+    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
+        if client is not None:
+            self._client = client
+        else:
+            config = ModelConfig(base_url=mlx_url)
+            self._client = MLXClient(config)
 
     def scan_directory(self, path: str | Path, language: str = "auto") -> DependencyGraph:
-        """Scan a directory and build a dependency graph.
-
-        Args:
-            path: Root directory of the codebase.
-            language: Source language or "auto" for auto-detection.
-
-        Returns:
-            DependencyGraph with modules and relationships.
-        """
         root = Path(path).expanduser().resolve()
         if not root.is_dir():
             logger.warning("Directory not found: %s", root)
@@ -66,7 +56,6 @@ class DependencyAnalyzer:
         return graph
 
     def identify_dead_code(self, graph: DependencyGraph) -> list[str]:
-        """Identify modules with no incoming dependencies."""
         all_targets = {e["target"] for e in graph.edges}
         dead = []
         for node_id in graph.nodes:
@@ -75,7 +64,6 @@ class DependencyAnalyzer:
         return dead
 
     def estimate_tech_debt(self, graph: DependencyGraph) -> dict[str, Any]:
-        """Estimate tech debt based on code complexity and size."""
         total_size = sum(n.get("size_bytes", 0) for n in graph.nodes.values())
         return {
             "total_files": len(graph.nodes),
@@ -85,40 +73,58 @@ class DependencyAnalyzer:
         }
 
     async def analyze_with_llm(self, code: str, language: str) -> dict[str, Any]:
-        """Use fusion-mlx to analyze code structure and logic."""
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(f"{self.mlx_url}/chat/completions", json={
-                    "model": "qwen3.5-9b",
-                    "messages": [{
-                        "role": "user",
-                        "content": f"Analyze this {language} code. Identify: 1) purpose, 2) inputs/outputs, 3) dependencies, 4) potential issues. Return as JSON.\n\n```{language}\n{code[:3000]}\n```",
-                    }],
-                    "max_tokens": 1024,
-                    "temperature": 0.1,
-                })
-                resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"]["content"]
-                import json
-                return json.loads(content) if content.startswith("{") else {"analysis": content}
-        except Exception as e:
-            return {"error": str(e), "language": language}
+        result = await self._client.chat(
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Analyze this {language} code. Identify: 1) purpose, "
+                        f"2) inputs/outputs, 3) dependencies, 4) potential issues. "
+                        f"Return as JSON.\n\n```{language}\n{code[:3000]}\n```"
+                    ),
+                }
+            ],
+            max_tokens=1024,
+            temperature=0.1,
+        )
+        if result["status"] == "completed":
+            import json
+
+            content = result["content"]
+            if content.startswith("{"):
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    pass
+            return {"analysis": content}
+        return {"error": result.get("error", "Unknown"), "language": language}
 
     @staticmethod
     def _detect_language(ext: str) -> str:
         lang_map = {
-            ".py": "python", ".java": "java", ".c": "c", ".cpp": "cpp",
-            ".cs": "csharp", ".js": "javascript", ".ts": "typescript",
-            ".go": "go", ".rs": "rust", ".php": "php", ".rb": "ruby",
-            ".swift": "swift", ".kt": "kotlin", ".scala": "scala",
-            ".cbl": "cobol", ".cpy": "cobol", ".vba": "vb6", ".bas": "vb6",
+            ".py": "python",
+            ".java": "java",
+            ".c": "c",
+            ".cpp": "cpp",
+            ".cs": "csharp",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".go": "go",
+            ".rs": "rust",
+            ".php": "php",
+            ".rb": "ruby",
+            ".swift": "swift",
+            ".kt": "kotlin",
+            ".scala": "scala",
+            ".cbl": "cobol",
+            ".cpy": "cobol",
+            ".vba": "vb6",
+            ".bas": "vb6",
         }
         return lang_map.get(ext, "")
 
     @staticmethod
     def _extract_imports(code: str, language: str) -> list[str]:
-        """Extract import statements from code."""
         patterns = {
             "python": [r"^import\s+(\S+)", r"^from\s+(\S+)\s+import"],
             "java": [r"^import\s+([\w.]+)"],
@@ -138,7 +144,6 @@ class DependencyAnalyzer:
 
     @staticmethod
     def generate_report(graph: DependencyGraph, tech_debt: dict) -> str:
-        """Generate a markdown analysis report."""
         lines = [
             "# Code Modernization Analysis Report",
             "",
@@ -151,8 +156,8 @@ class DependencyAnalyzer:
         ]
         langs = {}
         for n in graph.nodes.values():
-            l = n.get("language", "unknown")
-            langs[l] = langs.get(l, 0) + 1
+            lang = n.get("language", "unknown")
+            langs[lang] = langs.get(lang, 0) + 1
         for lang, count in sorted(langs.items(), key=lambda x: -x[1]):
             lines.append(f"- {lang}: {count} files")
         return "\n".join(lines)

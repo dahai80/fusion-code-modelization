@@ -1,10 +1,11 @@
 """Enterprise pipeline integration — Git, CI/CD, PR automation, audit logging."""
+
 from __future__ import annotations
 
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AuditLog:
     """Single audit log entry for compliance."""
+
     action: str
     module: str
     file: str
@@ -37,8 +39,7 @@ class PipelineIntegrator:
         self.repo_path = Path(repo_path).expanduser().resolve()
         self._audit_logs: list[AuditLog] = []
 
-    def create_pr(self, branch_name: str, title: str, description: str,
-                   changes: list[dict]) -> dict[str, Any]:
+    def create_pr(self, branch_name: str, title: str, description: str, changes: list[dict]) -> dict[str, Any]:
         """Create a local PR-style branch with changes.
 
         Args:
@@ -51,10 +52,10 @@ class PipelineIntegrator:
             Dict with PR details.
         """
         import subprocess
+
         try:
             # Create branch
-            subprocess.run(["git", "checkout", "-b", branch_name],
-                          cwd=self.repo_path, capture_output=True, timeout=10)
+            subprocess.run(["git", "checkout", "-b", branch_name], cwd=self.repo_path, capture_output=True, timeout=10)
 
             # Apply changes
             for change in changes:
@@ -65,12 +66,12 @@ class PipelineIntegrator:
                 else:
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(change["content"], encoding="utf-8")
-                subprocess.run(["git", "add", change["path"]],
-                              cwd=self.repo_path, capture_output=True, timeout=10)
+                subprocess.run(["git", "add", change["path"]], cwd=self.repo_path, capture_output=True, timeout=10)
 
             # Commit
-            subprocess.run(["git", "commit", "-m", title, "-m", description],
-                          cwd=self.repo_path, capture_output=True, timeout=10)
+            subprocess.run(
+                ["git", "commit", "-m", title, "-m", description], cwd=self.repo_path, capture_output=True, timeout=10
+            )
 
             pr_info = {
                 "branch": branch_name,
@@ -124,9 +125,17 @@ class PipelineIntegrator:
 
     def get_audit_log(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get audit log entries."""
-        return [{"action": a.action, "module": a.module, "file": a.file,
-                 "status": a.status, "timestamp": a.timestamp, "details": a.details}
-                for a in self._audit_logs[-limit:]]
+        return [
+            {
+                "action": a.action,
+                "module": a.module,
+                "file": a.file,
+                "status": a.status,
+                "timestamp": a.timestamp,
+                "details": a.details,
+            }
+            for a in self._audit_logs[-limit:]
+        ]
 
     def export_audit_log(self, output_path: str = "") -> str:
         """Export audit log to JSON file."""
@@ -186,4 +195,8 @@ class PriorityScorer:
             score -= 50
             factors.append("dead_code")
 
-        return {"score": max(0, score), "factors": factors, "priority": "high" if score >= 50 else "medium" if score >= 20 else "low"}
+        return {
+            "score": max(0, score),
+            "factors": factors,
+            "priority": "high" if score >= 50 else "medium" if score >= 20 else "low",
+        }

@@ -1,18 +1,17 @@
-"""Tests for Pipeline, PR, Doc, Decompose modules."""
 from __future__ import annotations
 
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from fusion_code_modelization.pipeline import PipelineIntegrator, PriorityScorer, AuditLog
-from fusion_code_modelization.pr_gen import PRGenerator, DocGenerator, MicroserviceDecomposer
-
+from fusion_code_modelization.pipeline import AuditLog, PipelineIntegrator, PriorityScorer
+from fusion_code_modelization.pr_gen import DocGenerator, MicroserviceDecomposer, PRGenerator
 
 # ── AuditLog ──
+
 
 class TestAuditLog:
     def test_defaults(self):
@@ -22,6 +21,7 @@ class TestAuditLog:
 
 
 # ── PipelineIntegrator ──
+
 
 class TestPipelineIntegrator:
     def test_create_pr_no_git(self):
@@ -66,6 +66,7 @@ class TestPipelineIntegrator:
 
 # ── PriorityScorer ──
 
+
 class TestPriorityScorer:
     def test_score_large_file(self):
         score = PriorityScorer.score_file({"size_bytes": 200000, "dependencies": [], "language": "python"})
@@ -78,31 +79,38 @@ class TestPriorityScorer:
         assert "legacy_cobol" in score["factors"]
 
     def test_score_dead_code(self):
-        score = PriorityScorer.score_file({"size_bytes": 1000, "dependencies": [], "language": "python", "is_dead": True})
-        assert score["score"] == 0  # 5 (python) - 50 (dead) = max(0, -45) = 0
+        score = PriorityScorer.score_file(
+            {"size_bytes": 1000, "dependencies": [], "language": "python", "is_dead": True}
+        )
+        assert score["score"] == 0
         assert score["priority"] == "low"
 
     def test_score_highly_dependent(self):
-        score = PriorityScorer.score_file({"size_bytes": 5000, "dependencies": [f"dep{i}" for i in range(15)], "language": "java"})
+        score = PriorityScorer.score_file(
+            {"size_bytes": 5000, "dependencies": [f"dep{i}" for i in range(15)], "language": "java"}
+        )
         assert score["score"] >= 30
         assert "highly_dependent" in score["factors"]
 
 
 # ── PRGenerator ──
 
+
 class TestPRGenerator:
     @pytest.mark.asyncio
     async def test_generate_pr_description(self):
         prg = PRGenerator()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "PR description here"}}]}
-            mock_post.return_value = mock_resp
-            result = await prg.generate_pr_description([{"path": "main.py", "action": "modified", "summary": "refactored"}])
+        with patch.object(
+            prg._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "PR description here"})
+        ):
+            result = await prg.generate_pr_description(
+                [{"path": "main.py", "action": "modified", "summary": "refactored"}]
+            )
             assert "description" in result
 
 
 # ── DocGenerator ──
+
 
 class TestDocGenerator:
     @pytest.mark.asyncio
@@ -117,22 +125,22 @@ class TestDocGenerator:
     @pytest.mark.asyncio
     async def test_generate_api_docs(self):
         dg = DocGenerator()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "API docs"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            dg._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "API docs"})
+        ):
             result = await dg.generate_api_docs("def foo(): pass", "python")
             assert "API docs" in result
 
     @pytest.mark.asyncio
     async def test_generate_api_docs_failure(self):
         dg = DocGenerator()
-        with patch("httpx.AsyncClient.post", side_effect=RuntimeError("fail")):
+        with patch.object(dg._client, "chat", new=AsyncMock(return_value={"status": "failed", "error": "fail"})):
             result = await dg.generate_api_docs("code", "python")
             assert "Error" in result
 
 
 # ── MicroserviceDecomposer ──
+
 
 class TestMicroserviceDecomposer:
     def test_analyze_boundaries(self):
@@ -154,9 +162,8 @@ class TestMicroserviceDecomposer:
     @pytest.mark.asyncio
     async def test_suggest_decomposition(self):
         md = MicroserviceDecomposer()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "Split into 3 services"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            md._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "Split into 3 services"})
+        ):
             result = await md.suggest_decomposition("class App {}", "java")
             assert "suggestions" in result

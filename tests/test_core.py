@@ -1,20 +1,93 @@
-"""Tests for Fusion-Code-Modelization core modules."""
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from fusion_code_modelization.analyzer.dependency import DependencyAnalyzer, DependencyGraph
+from fusion_code_modelization.core.client import MLXClient
+from fusion_code_modelization.core.config import MODEL_PRESETS, ModelConfig, get_model_config
 from fusion_code_modelization.migration.transpiler import CodeTranspiler
 from fusion_code_modelization.refactor.refactorer import IncrementalRefactorer
-from fusion_code_modelization.test_gen.generator import TestGenerator
 from fusion_code_modelization.security.scanner import SecurityScanner
+from fusion_code_modelization.test_gen.generator import UnitTestGenerator
+
+# ── MLXClient & ModelConfig ──
+
+
+class TestModelConfig:
+    def test_default_config(self):
+        config = ModelConfig()
+        assert config.model == "qwen3.5-9b"
+        assert config.temperature == 0.1
+        assert config.max_tokens == 4096
+
+    def test_to_chat_params(self):
+        config = ModelConfig(model="test-model", temperature=0.5, max_tokens=100)
+        params = config.to_chat_params()
+        assert params["model"] == "test-model"
+        assert params["temperature"] == 0.5
+        assert params["max_tokens"] == 100
+
+    def test_presets(self):
+        assert "default" in MODEL_PRESETS
+        assert "code" in MODEL_PRESETS
+        assert "analysis" in MODEL_PRESETS
+        code_config = get_model_config("code")
+        assert code_config.model == "qwen3.5-9b"
+        assert code_config.temperature == 0.1
+
+    def test_get_model_config_unknown(self):
+        config = get_model_config("nonexistent")
+        assert config.model == "qwen3.5-9b"
+
+
+class TestMLXClient:
+    def test_init_default(self):
+        client = MLXClient()
+        assert client.config.base_url == "http://localhost:11434/v1"
+
+    def test_init_with_config(self):
+        config = ModelConfig(base_url="http://custom:9999/v1")
+        client = MLXClient(config)
+        assert client.config.base_url == "http://custom:9999/v1"
+
+    @pytest.mark.asyncio
+    async def test_chat_success(self):
+        client = MLXClient()
+        mock_response = {"status": "completed", "content": "hello"}
+        with patch.object(client, "chat", new=AsyncMock(return_value=mock_response)):
+            result = await client.chat(messages=[{"role": "user", "content": "hi"}])
+            assert result["status"] == "completed"
+            assert result["content"] == "hello"
+
+    @pytest.mark.asyncio
+    async def test_simple_chat(self):
+        client = MLXClient()
+        with patch.object(client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "response"})):
+            result = await client.simple_chat("test prompt")
+            assert result == "response"
+
+    def test_extract_code(self):
+        content = "```python\nprint('hello')\n```"
+        code = MLXClient.extract_code(content, "python")
+        assert "print" in code
+
+    def test_extract_code_no_fence(self):
+        content = "just plain code"
+        code = MLXClient.extract_code(content)
+        assert code == "just plain code"
+
+    def test_extract_code_specific_language(self):
+        content = "```java\npublic class Foo {}\n```"
+        code = MLXClient.extract_code(content, "java")
+        assert "public class" in code
 
 
 # ── DependencyAnalyzer ──
+
 
 class TestDependencyAnalyzer:
     def test_scan_directory(self):
@@ -37,7 +110,7 @@ class TestDependencyAnalyzer:
         graph.nodes["b.py"] = {"path": "b.py", "language": "python", "size_bytes": 100, "dependencies": []}
         graph.edges = [{"source": "a.py", "target": "b.py", "type": "import"}]
         dead = DependencyAnalyzer().identify_dead_code(graph)
-        assert "a.py" in dead  # a.py imports b.py, but nothing imports a.py
+        assert "a.py" in dead
 
     def test_estimate_tech_debt(self):
         graph = DependencyGraph()
@@ -68,15 +141,17 @@ class TestDependencyAnalyzer:
     @pytest.mark.asyncio
     async def test_analyze_with_llm(self):
         analyzer = DependencyAnalyzer()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": '{"purpose": "test"}'}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            analyzer._client,
+            "chat",
+            new=AsyncMock(return_value={"status": "completed", "content": '{"purpose": "test"}'}),
+        ):
             result = await analyzer.analyze_with_llm("print('hello')", "python")
             assert "purpose" in result
 
 
 # ── CodeTranspiler ──
+
 
 class TestCodeTranspiler:
     @pytest.mark.asyncio
@@ -88,27 +163,29 @@ class TestCodeTranspiler:
     @pytest.mark.asyncio
     async def test_transpile_success(self):
         t = CodeTranspiler()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "```java\npublic class Hello {}\n```"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            t._client,
+            "chat",
+            new=AsyncMock(return_value={"status": "completed", "content": "```java\npublic class Hello {}\n```"}),
+        ):
             result = await t.transpile("print('hi')", "python", "java")
             assert result["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_transpile_failure(self):
         t = CodeTranspiler()
-        with patch("httpx.AsyncClient.post", side_effect=RuntimeError("fail")):
+        with patch.object(
+            t._client, "chat", new=AsyncMock(return_value={"status": "failed", "error": "connection refused"})
+        ):
             result = await t.transpile("code", "python", "java")
             assert result["status"] == "failed"
 
     @pytest.mark.asyncio
     async def test_verify(self):
         t = CodeTranspiler()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "YES, same logic"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            t._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "YES, same logic"})
+        ):
             result = await t.verify("a", "b", "python")
             assert result["verified"] is True
 
@@ -117,84 +194,79 @@ class TestCodeTranspiler:
         assert len(migrations) > 0
         assert any(m["source"] == "cobol" for m in migrations)
 
-    def test_extract_code(self):
-        content = "```python\nprint('hello')\n```"
-        code = CodeTranspiler._extract_code(content, "python")
-        assert "print" in code
-
 
 # ── IncrementalRefactorer ──
+
 
 class TestIncrementalRefactorer:
     @pytest.mark.asyncio
     async def test_characterize(self):
         r = IncrementalRefactorer()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "def test(): pass"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            r._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "def test(): pass"})
+        ):
             result = await r.characterize("def foo(): pass", "python")
             assert result["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_refactor(self):
         r = IncrementalRefactorer()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "```python\nx = 1\n```"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            r._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "```python\nx = 1\n```"})
+        ):
             result = await r.refactor("x=1", "python")
             assert result["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_dual_run_verify(self):
         r = IncrementalRefactorer()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "YES same output"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            r._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "YES same output"})
+        ):
             result = await r.dual_run_verify("a", "a", "python")
             assert result["verified"] is True
 
 
 # ── TestGenerator ──
 
-class TestTestGenerator:
+
+class TestUnitTestGenerator:
     @pytest.mark.asyncio
     async def test_generate_unit_tests(self):
-        g = TestGenerator()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "```python\ndef test(): pass\n```"}}]}
-            mock_post.return_value = mock_resp
+        g = UnitTestGenerator()
+        with patch.object(
+            g._client,
+            "chat",
+            new=AsyncMock(return_value={"status": "completed", "content": "```python\ndef test(): pass\n```"}),
+        ):
             result = await g.generate_unit_tests("def foo(): pass", "python")
             assert result["status"] == "completed"
 
     @pytest.mark.asyncio
     async def test_generate_integration_tests(self):
-        g = TestGenerator()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "integration tests here"}}]}
-            mock_post.return_value = mock_resp
+        g = UnitTestGenerator()
+        with patch.object(
+            g._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "integration tests here"})
+        ):
             result = await g.generate_integration_tests([{"name": "mod1", "desc": "module 1"}], "python")
             assert result["status"] == "completed"
 
 
 # ── SecurityScanner ──
 
+
 class TestSecurityScanner:
     @pytest.mark.asyncio
     async def test_scan(self):
         s = SecurityScanner()
-        with patch.object(s, "_llm_scan", AsyncMock(return_value={"findings": []})):
+        with patch.object(s, "_llm_scan", new=AsyncMock(return_value={"findings": []})):
             result = await s.scan("password = 'secret123'", "python")
-            assert result["total_findings"] >= 1  # hardcoded password
+            assert result["total_findings"] >= 1
 
     @pytest.mark.asyncio
     async def test_scan_no_issues(self):
         s = SecurityScanner()
-        with patch.object(s, "_llm_scan", AsyncMock(return_value={"findings": []})):
+        with patch.object(s, "_llm_scan", new=AsyncMock(return_value={"findings": []})):
             result = await s.scan("x = 1", "python")
             assert result["total_findings"] >= 0
 
@@ -213,9 +285,8 @@ class TestSecurityScanner:
     @pytest.mark.asyncio
     async def test_fix(self):
         s = SecurityScanner()
-        with patch("httpx.AsyncClient.post", new=AsyncMock()) as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"choices": [{"message": {"content": "```\nsecure = True\n```"}}]}
-            mock_post.return_value = mock_resp
+        with patch.object(
+            s._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "```\nsecure = True\n```"})
+        ):
             result = await s.fix("password = 'secret'", "hardcoded password")
             assert result["status"] == "completed"

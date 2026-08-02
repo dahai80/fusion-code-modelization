@@ -8,7 +8,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-70-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-210-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Documentation](docs/)
 
@@ -30,6 +30,11 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Enterprise pipeline** | ✅ Git/CI-CD/PR/Audit logs | ✅ |
 | **Microservice decomposition** | ✅ | ✅ |
 | **Git integration** | ✅ Gitee, GitHub, GitLab | ✅ GitHub only |
+| **Parallel multi-agent sessions** | ✅ SessionEngine | ✅ |
+| **Dynamic Workflow** | ✅ LLM task decomposition | ✅ |
+| **Incremental snapshots** | ✅ FileDelta + SnapshotManager | ✅ |
+| **Three-tier project memory** | ✅ FUSION.md (global/project/directory) | ✅ CLAUDE.md |
+| **Security sandbox** | ✅ Three-tier (readonly/manual/auto) | ✅ |
 
 **One sentence:** Fusion-Code-Modelization is the local-first, privacy-compliant alternative to Claude Code Modernization — powered by fusion-mlx on Apple Silicon.
 
@@ -104,6 +109,13 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | `refactor <file> [--instructions] [--output]` | Refactor code incrementally |
 | `test-gen <file> [--language] [--output]` | Generate unit tests |
 | `security <file> [--language] [--output]` | Scan for security vulnerabilities |
+| `session <action> [--id] [--name]` | Manage parallel sessions (create/list/start/pause/resume/complete/delete) |
+| `snapshot <action> [--project-dir] [--id] [--label] [--steps]` | Incremental snapshots and rollback (create/list/restore/rewind/delete) |
+| `workflow <action> [--description] [--template] [--max-parallel]` | Dynamic task decomposition and execution (decompose/run) |
+| `memory <action> [--project-dir] [--query]` | Three-tier project memory (init/list/load/query) |
+| `sandbox <action> [--path] [--mode]` | Security sandbox and audit (check/audit) |
+| `decompose <path> [--method] [--output]` | Microservice boundary detection (static/llm) |
+| `doc-gen <file> [--type] [--language] [--output]` | Documentation generation (module/class/api) |
 | `version` | Show version info |
 
 ### Supported Languages
@@ -130,7 +142,8 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Fusion-Code-Modelization CLI                  │
-│  analyze · transpile · refactor · test-gen · security           │
+│  analyze · transpile · refactor · test-gen · security · session  │
+│  snapshot · workflow · memory · sandbox · decompose · doc-gen    │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -154,6 +167,24 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │  │ (PR descriptions│  │ (migration     │  │ Decomposer       │  │
 │  │  & changelogs) │  │  reports, API) │  │ (boundary analysis│ │
 │  └────────────────┘  └────────────────┘  └──────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              Platform Layer (NEW)                          │  │
+│  │                                                            │  │
+│  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
+│  │  │ Session     │ │ Snapshot     │ │ Security Sandbox   │  │  │
+│  │  │ Engine      │ │ Manager      │ │ (readonly/manual/  │  │  │
+│  │  │ (parallel   │ │ (incremental │ │  auto)             │  │  │
+│  │  │  sessions)  │ │  file deltas)│ │                    │  │  │
+│  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
+│  │                                                            │  │
+│  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
+│  │  │ Dynamic     │ │ Project      │ │ MLXClient          │  │  │
+│  │  │ Workflow    │ │ Memory       │ │ (unified HTTP      │  │  │
+│  │  │ (LLM task   │ │ (FUSION.md   │ │  client)           │  │  │
+│  │  │  decompose) │ │  3-tier)     │ │                    │  │  │
+│  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ HTTP API (all model calls)
 ┌───────────────────────────▼─────────────────────────────────────┐
@@ -169,13 +200,29 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **Dependency Analyzer** | `analyzer/dependency.py` | Code dependency graph, dead code detection, tech debt estimation |
 | **Code Transpiler** | `migration/transpiler.py` | Cross-language migration (COBOL→Java, VB6→C#, etc.) |
 | **Incremental Refactorer** | `refactor/refactorer.py` | Test-first refactoring with dual-run verification |
-| **Test Generator** | `test_gen/generator.py` | Unit and integration test generation |
+| **Test Generator** | `test_gen/generator.py` | Unit and integration test generation (UnitTestGenerator) |
 | **Security Scanner** | `security/scanner.py` | Hardcoded secrets, injection vulnerabilities, CVE detection |
 | **Pipeline Integrator** | `pipeline/__init__.py` | Git/CI-CD integration, PR creation, audit logging |
 | **Priority Scorer** | `pipeline/__init__.py` | Migration priority scoring (business + tech debt) |
 | **PR Generator** | `pr_gen/__init__.py` | PR description and changelog generation |
 | **Doc Generator** | `pr_gen/__init__.py` | Migration reports and API documentation |
 | **Microservice Decomposer** | `pr_gen/__init__.py` | Monolith boundary analysis and microservice suggestions |
+| **MLXClient** | `core/client.py` | Unified HTTP client for fusion-mlx API, code extraction |
+| **ModelConfig** | `core/config.py` | Model configuration with presets (default/code/analysis/creative/fast) |
+| **Session Engine** | `session/engine.py` | Parallel multi-agent sessions with state machine lifecycle |
+| **Session Store** | `session/store.py` | JSON file persistence for session state |
+| **Snapshot Manager** | `snapshot/manager.py` | Incremental file snapshots with create/restore/rewind |
+| **File Delta** | `snapshot/delta.py` | difflib-based file diff computation and application |
+| **Security Sandbox** | `sandbox/guard.py` | Three-tier (readonly/manual/auto) file and command guard |
+| **Sandbox Policy** | `sandbox/policy.py` | Path boundaries, dangerous command blocking, sensitive file protection |
+| **Sandbox Audit** | `sandbox/audit.py` | Operation logging with JSON-line persistence |
+| **Task Decomposer** | `workflow/decomposer.py` | LLM-powered task decomposition with dependency resolution |
+| **Workflow Executor** | `workflow/executor.py` | Parallel sub-agent execution with merge/converge |
+| **Workflow Templates** | `workflow/decomposer.py` | Pre-built templates (legacy_migration, security_scan, batch_api) |
+| **Memory Tier Manager** | `memory/tier.py` | Three-tier FUSION.md (global/project/directory) |
+| **Memory Context** | `memory/context.py` | LLM-enhanced memory summarization and query |
+| **Boundary Detector** | `decompose/__init__.py` | Coupling analysis + LLM-powered microservice boundary detection |
+| **Documentation Generator** | `doc_gen/__init__.py` | Module/class/API doc generation + README builder |
 
 ---
 
@@ -195,6 +242,11 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | Migration priority scoring | ✅ | ✅ |
 | Microservice decomposition | ✅ | ✅ |
 | Audit logging | ✅ | ✅ |
+| Parallel multi-agent sessions | ✅ | ✅ SessionEngine |
+| Dynamic Workflow | ✅ | ✅ TaskDecomposer + WorkflowExecutor |
+| Incremental snapshots | ✅ | ✅ SnapshotManager + FileDelta |
+| Three-tier project memory | ✅ CLAUDE.md | ✅ FUSION.md |
+| Security sandbox | ✅ | ✅ three-tier (readonly/manual/auto) |
 | **Local offline** | ❌ Cloud-only | ✅ **100% local** |
 | **Data privacy** | ❌ Code uploaded to cloud | ✅ **Data never leaves device** |
 | **China compliance** | ❌ Violates data security law | ✅ **Full compliance** |
@@ -217,9 +269,17 @@ pytest tests/ --cov=fusion_code_modelization
 ```
 
 ### Test Stats
-- **70 tests**, 0 failures
+- **210 tests**, 0 failures
 - **96%+ statement coverage**
 - **Python 3.12+** compatible
+
+### Lint
+
+```bash
+pip install -e ".[lint]"
+ruff check .
+ruff format --check .
+```
 
 ---
 

@@ -1,13 +1,10 @@
 """Final coverage push — targets pipeline remaining uncovered lines."""
+
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from fusion_code_modelization.pipeline import PipelineIntegrator, PriorityScorer
 
@@ -57,7 +54,9 @@ class TestPipelineFinal:
     def test_priority_scorer_edge_cases(self):
         """Test priority scorer edge cases."""
         # Medium file with moderate deps
-        score = PriorityScorer.score_file({"size_bytes": 50000, "dependencies": [f"d{i}" for i in range(7)], "language": "java"})
+        score = PriorityScorer.score_file(
+            {"size_bytes": 50000, "dependencies": [f"d{i}" for i in range(7)], "language": "java"}
+        )
         assert score["score"] >= 20
         # Legacy language with no deps
         score = PriorityScorer.score_file({"size_bytes": 100, "dependencies": [], "language": "cobol"})
