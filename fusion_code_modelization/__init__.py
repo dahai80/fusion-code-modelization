@@ -59,7 +59,7 @@ from .offline import CAPABILITY_MATRIX, OfflineCache, OfflineCapability, Offline
 from .offline import OfflineMode as OfflineDeployMode
 from .pipeline import AuditLog, PipelineIntegrator, PriorityScorer
 from .plugin import PluginAction, PluginCategory, PluginManager, PluginManifest, PluginRegistry, PluginStatus
-from .pr_gen import DocGenerator, MicroserviceDecomposer, PRGenerator
+from .pr_gen import BoundaryType, DocGenerator, MicroserviceDecomposer, PRGenerator
 from .refactor.refactorer import IncrementalRefactorer
 from .security.scanner import SecurityScanner
 from .session import Session, SessionEngine, SessionState, SessionStore
@@ -109,6 +109,7 @@ __all__ = [
     "PRGenerator",
     "DocGenerator",
     "MicroserviceDecomposer",
+    "BoundaryType",
     "SessionEngine",
     "Session",
     "SessionState",

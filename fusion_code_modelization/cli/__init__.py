@@ -5,15 +5,29 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
+
+logger = logging.getLogger("fusion_code_modelization")
+
+
+class _GlobalFlags:
+    json_output: bool = False
+    quiet: bool = False
+
+
+_global_flags = _GlobalFlags()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Fusion-Code-Modelization — Legacy code modernization")
     parser.add_argument("--mlx-url", default="http://localhost:11434/v1", help="fusion-mlx URL")
+    parser.add_argument("--json", dest="json_output", action="store_true", help="Output results as JSON")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress non-error output")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -184,6 +198,11 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    _configure_logging(args)
+
+    _global_flags.json_output = args.json_output
+    _global_flags.quiet = args.quiet
+
     dispatch = {
         "version": _cmd_version,
         "analyze": lambda: asyncio.run(_cmd_analyze(args)),
@@ -207,12 +226,34 @@ def main():
         "trace": lambda: _cmd_trace(args),
         "agent-comm": lambda: _cmd_agent_comm(args),
     }
-    dispatch[args.command]()
+    try:
+        dispatch[args.command]()
+    except Exception as exc:
+        if args.json_output:
+            json.dump({"status": "failed", "error": str(exc)}, sys.stdout)
+            print()
+        else:
+            logger.error("Command failed: %s", exc)
+        sys.exit(1)
+
+
+def _configure_logging(args):
+    if args.quiet:
+        level = logging.ERROR
+    elif args.verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.WARNING
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def _cmd_version():
-    print(f"Fusion-Code-Modelization v{VERSION}")
-    print("Base: fusion-mlx")
+    if _global_flags.json_output:
+        json.dump({"version": VERSION, "base": "fusion-mlx"}, sys.stdout)
+        print()
+    else:
+        print(f"Fusion-Code-Modelization v{VERSION}")
+        print("Base: fusion-mlx")
 
 
 async def _cmd_analyze(args):

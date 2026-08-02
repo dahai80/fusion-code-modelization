@@ -1,7 +1,7 @@
 [project]
-name = "fusion-code-modenization"
-version = "0.4.0"
-description = "Fusion-Code-Modenization — Legacy code modernization and cross-language migration powered by fusion-mlx"
+name = "fusion-code-modernization"
+version = "0.5.0"
+description = "Fusion-Code-Modernization — Local-first legacy code modernization and cross-language migration toolkit powered by fusion-mlx"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27.0",
@@ -17,6 +17,10 @@ test = [
 ]
 lint = [
     "ruff>=0.8.0",
+]
+dev = [
+    "mypy>=1.10.0",
+    "bandit>=1.7.0",
 ]
 
 [project.scripts]

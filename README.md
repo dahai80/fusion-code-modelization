@@ -8,7 +8,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-400+-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-674+-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Documentation](docs/)
 
@@ -135,6 +135,9 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | `trace <action> [--artifact-type] [--artifact-id]` | End-to-end traceability (create/link/forward/backward/report) |
 | `agent-comm <action> [--agents] [--collab-id]` | Agent cross-machine communication (create/submit/conflict/resolve/complete/list/status) |
 | `version` | Show version info |
+| `--json` | Global flag: output results as JSON |
+| `--verbose` / `-v` | Global flag: enable debug logging |
+| `--quiet` / `-q` | Global flag: suppress non-error output |
 
 ### Supported Languages
 
@@ -241,12 +244,13 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **Code Transpiler** | `migration/transpiler.py` | Cross-language migration (COBOL→Java, VB6→C#, etc.) |
 | **Incremental Refactorer** | `refactor/refactorer.py` | Test-first refactoring with dual-run verification |
 | **Test Generator** | `test_gen/generator.py` | Unit and integration test generation (UnitTestGenerator) |
-| **Security Scanner** | `security/scanner.py` | Hardcoded secrets, injection vulnerabilities, CVE detection |
-| **Pipeline Integrator** | `pipeline/__init__.py` | Git/CI-CD integration, PR creation, audit logging |
-| **Priority Scorer** | `pipeline/__init__.py` | Migration priority scoring (business + tech debt) |
-| **PR Generator** | `pr_gen/__init__.py` | PR description and changelog generation |
-| **Doc Generator** | `pr_gen/__init__.py` | Migration reports and API documentation |
-| **Microservice Decomposer** | `pr_gen/__init__.py` | Monolith boundary analysis and microservice suggestions |
+| **Security Scanner** | `security/scanner.py` | Multi-mode scanning: static-only, static+LLM, static+fusion-security delegation |
+| **Pipeline Integrator** | `pipeline/integrator.py` | Git/CI-CD integration, PR creation, audit logging |
+| **AuditLog** | `pipeline/models.py` | Audit trail data model with to_dict() serialization |
+| **Priority Scorer** | `pipeline/scorer.py` | Migration priority scoring (business + tech debt) |
+| **PR Generator** | `pr_gen/pr_generator.py` | PR description and changelog generation |
+| **Doc Generator** | `pr_gen/doc_generator.py` | Migration reports and API documentation |
+| **Microservice Decomposer** | `pr_gen/decomposer.py` | Monolith boundary analysis with multi-granularity (MICROSERVICE/MODULE/PACKAGE) |
 | **MLXClient** | `core/client.py` | Unified HTTP client for fusion-mlx API, code extraction |
 | **ModelConfig** | `core/config.py` | Model configuration with presets (default/code/analysis/creative/fast) |
 | **Session Engine** | `session/engine.py` | Parallel multi-agent sessions with state machine lifecycle |
@@ -261,8 +265,10 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | **Workflow Templates** | `workflow/decomposer.py` | Pre-built templates (legacy_migration, security_scan, batch_api) |
 | **Memory Tier Manager** | `memory/tier.py` | Three-tier FUSION.md (global/project/directory) |
 | **Memory Context** | `memory/context.py` | LLM-enhanced memory summarization and query |
-| **Boundary Detector** | `decompose/__init__.py` | Coupling analysis + LLM-powered microservice boundary detection |
-| **Documentation Generator** | `doc_gen/__init__.py` | Module/class/API doc generation + README builder |
+| **Boundary Detector** | `decompose/detector.py` | Coupling analysis + LLM-powered microservice boundary detection |
+| **CouplingEdge/BoundarySuggestion** | `decompose/models.py` | Decompose data models |
+| **Documentation Generator** | `doc_gen/generator.py` | Module/class/API doc generation + README builder |
+| **DocSection** | `doc_gen/models.py` | Documentation section data model |
 | **DualStackClient** | `core/client.py` | Local/cloud dual-stack with automatic routing and fallback |
 | **ModelRouter** | `core/config.py` | Complexity-based routing (LOCAL_FIRST/CLOUD_FIRST/COMPLEXITY_BASED) |
 | **DualModelConfig** | `core/config.py` | Dual model stack configuration with routing strategy |
@@ -341,16 +347,19 @@ pytest tests/ --cov=fusion_code_modelization
 ```
 
 ### Test Stats
-- **400+ tests**, 0 failures
-- **96%+ statement coverage**
+- **674+ tests**, 0 failures
+- **Integration tests** covering cross-module workflows
 - **Python 3.12+** compatible
 
-### Lint
+### Lint & CI
 
 ```bash
-pip install -e ".[lint]"
+pip install -e ".[lint,dev]"
 ruff check .
 ruff format --check .
+mypy fusion_code_modelization/ --ignore-missing-imports
+bandit -r fusion_code_modelization/ -ll -ii
+pytest tests/ --cov=fusion_code_modelization --cov-fail-under=80
 ```
 
 ---

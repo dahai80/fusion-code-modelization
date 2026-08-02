@@ -1,156 +1,84 @@
-# Phase 4 (V2.0) Implementation Plan
+# Phase 5 (V2.5) Implementation Plan
 
-<!-- GateGuard: Updated file. Importers: dev planning. Affected API: none. Data schemas: none. User instruction: "启动下一个阶段的实施" — implement V2.0 per enhancement doc. -->
+<!-- GateGuard: Updated file. Importers: dev planning. Affected API: none. Data schemas: none. User instruction: "启动下一个阶段的实施" — implement Phase 5 per architecture compliance and quality maturity. -->
 
-## Goal: Build V2.0 unique ecosystem moat per enhancement doc
+## Current State
 
-Current state: v0.3.0 with 327 tests, 14 submodules, 16 CLI commands, ruff clean, CI green.
+- v0.4.0 with 438 tests, 24 submodules, 107 public API symbols, ruff clean, CI green
+- 5 V2.0 modules delivered: benchmark, loadbalancer, offline, trace, agent_comm
+- Architecture compliance audit (ARCHITECTURE_COMPLIANCE.md) flags 3 P1 violations
+- 8 modules lack dedicated test files (analyzer, migration, pipeline, pr_gen, refactor, security, test_gen, cli)
+- decompose/ and doc_gen/ have all code in __init__.py (no separation)
+- pyproject.toml name has typo: "modenization" → should be "modernization"
 
-## V2.0 Requirements (from enhancement doc Section 7 — 长期版本)
+## Phase 5 Goals: Quality Maturity + Architecture Compliance
 
-1. **内置自动化测试 & 性能基准评测闭环** — Auto-test execution + benchmark scoring
-2. **集群智能负载均衡** — Auto-distribute tasks to idle nodes, smart scheduling
-3. **完整内网离线部署方案** — Offline mode, air-gapped deployment for enterprise
-4. **Fusion 全链路统一追踪** — End-to-end traceability: requirement → code → test artifact
-5. **Agent 跨机器通信协同** — Cross-node agent collaboration for mega-scale refactoring
+### 1. Architecture Compliance Remediation (P1)
+Per ARCHITECTURE_COMPLIANCE.md violations:
 
-## New Modules to Implement
+| # | Violation | Fix |
+|---|-----------|-----|
+| 1 | 名称名实不符 "modenization" | Fix typo → "modernization" in pyproject.toml, update package references |
+| 2 | SecurityScanner 与 fusion-security 重叠 | Refactor: keep static pattern scanning (secrets, vuln patterns), remove LLM scan overlap, add `fusion_security_api_url` option for delegation |
+| 3 | MicroserviceDecomposer 定位不清 | Keep as L4 工具, add `boundary_type` enum (MICROSERVICE, MODULE, PACKAGE) for multi-granularity |
 
-### Module 1: `benchmark/` — Performance Benchmark & Test Loop
-**Files:**
-- `benchmark/__init__.py` — exports
-- `benchmark/models.py` — BenchmarkSuite, BenchmarkResult, BenchmarkReport dataclasses
-  - `BenchmarkSuite` — named benchmark collection with target metrics
-  - `BenchmarkResult` — single benchmark run result (score, duration, pass/fail, metrics dict)
-  - `BenchmarkReport` — aggregated report with summary statistics, pass rate, trend comparison
-- `benchmark/runner.py` — BenchmarkRunner class
-  - `run_suite(suite_name)` — execute all benchmarks in a suite
-  - `run_single(benchmark_id)` — execute single benchmark
-  - `compare_reports(report_a, report_b)` — compare two runs, show regressions/improvements
-  - `get_historical_trends(suite_name, limit)` — trend analysis over last N runs
-- `benchmark/suite.py` — PredefinedBenchmarkSuites
-  - Code quality metrics (complexity, duplication, coverage)
-  - Performance metrics (inference latency, throughput, memory)
-  - Migration quality metrics (syntax correctness, semantic preservation)
+### 2. Test Coverage Completion
+Dedicated test files for 8 modules currently relying on legacy test files:
 
-### Module 2: `loadbalancer/` — Intelligent Cluster Load Balancer
-**Files:**
-- `loadbalancer/__init__.py` — exports
-- `loadbalancer/models.py` — LoadMetric, SchedulingDecision, BalancerConfig dataclasses
-  - `LoadMetric` — cpu/mem/gpu usage, active_tasks, weight
-  - `SchedulingDecision` — selected_node, reason, alternatives, estimated_wait
-  - `BalancerConfig` — strategy, thresholds, cooldown
-- `loadbalancer/strategy.py` — LoadBalanceStrategy enum + strategy implementations
-  - `ROUND_ROBIN` — simple round-robin across nodes
-  - `LEAST_LOADED` — pick node with lowest load_score
-  - `WEIGHTED_CAPACITY` — weight by hardware specs
-  - `AFFINITY_BASED` — session affinity, reuse same node when possible
-- `loadbalancer/balancer.py` — LoadBalancer class
-  - `evaluate_cluster()` — collect metrics from all cluster nodes
-  - `select_node(task_requirements)` — pick optimal node for a task
-  - `rebalance()` — redistribute tasks if cluster state changed
-  - `get_cluster_overview()` — dashboard-ready cluster health summary
-  - `predict_capacity(duration_hours)` — forecast cluster capacity
+| Module | Current Coverage | Target |
+|--------|-----------------|--------|
+| `analyzer/dependency.py` | test_coverage.py (shared) | test_analyzer.py |
+| `migration/transpiler.py` | test_advanced.py (shared) | test_migration.py |
+| `refactor/refactorer.py` | test_coverage.py (shared) | test_refactor.py |
+| `test_gen/generator.py` | test_advanced.py (shared) | test_test_gen.py |
+| `security/scanner.py` | test_coverage.py (shared) | test_security.py |
+| `pipeline/__init__.py` | test_coverage.py + test_final.py | test_pipeline.py |
+| `pr_gen/__init__.py` | test_advanced.py (shared) | test_pr_gen.py |
+| `cli/__init__.py` | test_advanced.py (shared) | test_cli.py |
 
-### Module 3: `offline/` — Offline / Air-Gapped Deployment
-**Files:**
-- `offline/__init__.py` — exports
-- `offline/models.py` — OfflineMode, OfflineCapability, OfflinePackage dataclasses
-  - `OfflineMode` — FULL_OFFLINE / SEMI_OFFLINE / ONLINE enum
-  - `OfflineCapability` — what's available in each mode (local_model, cluster, audit, etc.)
-  - `OfflinePackage` — bundled model + plugin + config for air-gapped install
-- `offline/manager.py` — OfflineManager class
-  - `detect_mode()` — auto-detect network state, determine offline level
-  - `prepare_offline_package(output_dir)` — bundle models, plugins, configs into deployable package
-  - `restore_from_package(package_dir)` — install from offline package
-  - `get_available_capabilities()` — list what works in current mode
-  - `validate_package(package_dir)` — verify package integrity before install
-- `offline/cache.py` — OfflineCache
-  - `cache_model(model_id)` — download and cache model for offline use
-  - `cache_plugin(plugin_id)` — cache plugin for offline install
-  - `list_cached()` — show all cached resources
-  - `cleanup_cache(max_size_mb)` — evict oldest cached items
+After migration → delete test_advanced.py, test_coverage.py, test_final.py (or merge unique tests).
 
-### Module 4: `trace/` — End-to-End Traceability
-**Files:**
-- `trace/__init__.py` — exports
-- `trace/models.py` — TraceNode, TraceEdge, TraceChain, TraceReport dataclasses
-  - `TraceNode` — a traceable artifact (requirement, code change, test result, deployment)
-  - `TraceEdge` — link between two nodes with relationship type
-  - `TraceChain` — full trace path from source to destination
-  - `TraceReport` — aggregated traceability report with coverage metrics
-- `trace/tracker.py` — TraceTracker class
-  - `create_node(artifact_type, artifact_id, metadata)` — register a traceable artifact
-  - `link_nodes(source_id, target_id, relationship)` — create trace link
-  - `trace_forward(artifact_id)` — trace forward from requirement to all downstream
-  - `trace_backward(artifact_id)` — trace backward from test/deployment to origin
-  - `get_trace_chain(artifact_id, direction)` — full chain in either direction
-  - `generate_report(filters)` — traceability coverage report
-- `trace/store.py` — TraceStore
-  - JSONL persistence for trace nodes and edges
-  - Graph traversal for forward/backward tracing
-  - Search and filter by artifact type, timestamp, metadata
+### 3. Module Structure Cleanup
+- `decompose/__init__.py` → split into `models.py` + `detector.py`
+- `doc_gen/__init__.py` → split into `models.py` + `generator.py`
+- `pipeline/__init__.py` → split into `integrator.py` (move PipelineIntegrator class out)
+- `pr_gen/__init__.py` → split into `pr_generator.py` + `doc_generator.py` + `decomposer.py`
 
-### Module 5: `agent_comm/` — Cross-Node Agent Communication
-**Files:**
-- `agent_comm/__init__.py` — exports
-- `agent_comm/models.py` — AgentMessage, AgentChannel, CollaborationTask dataclasses
-  - `AgentMessage` — structured inter-agent message (sender, recipient, type, payload)
-  - `AgentChannel` — named communication channel between agents
-  - `CollaborationTask` — multi-agent collaborative task with role assignments
-- `agent_comm/channel.py` — AgentChannelManager
-  - `create_channel(name, participants)` — set up communication channel
-  - `send_message(channel, message)` — send message to channel
-  - `receive_messages(channel, agent_id)` — get pending messages for agent
-  - `close_channel(name)` — tear down channel
-- `agent_comm/coordinator.py` — CollaborationCoordinator
-  - `create_collaboration(task_description, agents)` — set up multi-agent collaboration
-  - `assign_roles(collaboration_id)` — auto-assign roles based on agent capabilities
-  - `monitor_progress(collaboration_id)` — track collaboration status
-  - `merge_results(collaboration_id)` — collect and merge all agent outputs
-  - `handle_conflict(collaboration_id, conflict_type)` — resolve cross-agent conflicts
+### 4. Cross-Module Integration Tests
+- Benchmark + Trace: verify benchmark results are traceable
+- LoadBalancer + ClusterScheduler: end-to-end smart dispatch
+- Offline + Core: OfflineConfig restricts model routing
+- AgentComm + Cluster: cross-node collaboration scheduling
+- Pipeline + Trace: full pipeline artifact traceability
 
-## Enhance Existing Modules
+### 5. CLI Hardening
+- Add `--json` output flag to all commands
+- Add `--verbose`/`--quiet` log level control
+- Error exit codes: 0=success, 1=error, 2=invalid-args
 
-### Enhanced `cluster/scheduler.py` — Integrate LoadBalancer
-- Add `smart_dispatch()` method that uses LoadBalancer for node selection
-- Add `cluster_health_report()` method leveraging LoadBalancer.get_cluster_overview()
+### 6. CI Enhancement
+- Add coverage threshold (minimum 80%)
+- Add mypy type-checking job
+- Add security scan job (bandit)
 
-### Enhanced `core/config.py` — Offline Mode Support
-- Add `OfflineConfig` dataclass with mode, cache_dir, fallback_behavior
-- Add `get_runtime_config()` that respects offline mode restrictions
-
-### Enhanced `pipeline/__init__.py` — Trace Integration
-- Add `create_trace_link(source, target, relationship)` — link pipeline artifacts
-- Add `get_traceability_report()` — trace report for pipeline runs
-
-## CLI Extensions
-
-New subcommands:
-- `benchmark <action>` — run/compare/trends/suites
-- `loadbalancer <action>` — evaluate/select/overview/predict
-- `offline <action>` — detect/prepare/restore/capabilities/validate
-- `trace <action>` — create/link/forward/backward/report
-- `agent-comm <action>` — channel/send/receive/collaborate/monitor
-
-## Version Bump: 0.3.0 → 0.4.0
+## Version Bump: 0.4.0 → 0.5.0
 
 ## Implementation Order
 
-1. **benchmark/** — Test & benchmark loop (independent, pure local logic)
-2. **loadbalancer/** — Intelligent load balancing (enhances cluster)
-3. **offline/** — Offline deployment (cross-cutting, affects core/config)
-4. **trace/** — End-to-end traceability (standalone graph engine)
-5. **agent_comm/** — Cross-node agent communication (depends on cluster)
-6. **Enhance existing** — Wire loadbalancer into cluster, offline into core, trace into pipeline
-7. **CLI extensions** — Wire up all new modules
-8. **Tests** — Full test coverage for all new code
-9. **README/docs update** — Reflect new capabilities
-10. **CI/lint** — Ensure all green
+1. **Architecture compliance** — Fix typo, refactor SecurityScanner, clarify MicroserviceDecomposer
+2. **Module structure cleanup** — Split __init__.py monoliths into proper module files
+3. **Dedicated test files** — Migrate tests from legacy files, delete legacy files
+4. **Cross-module integration tests** — End-to-end validation
+5. **CLI hardening** — JSON output, exit codes, log levels
+6. **CI enhancement** — Coverage threshold, type checking, security scan
+7. **README/docs update** — Reflect new structure
+8. **Final verification** — All green, commit, tag v0.5.0
 
 ## Estimated Scope
 
-- ~15 new module files + 3 enhanced files
-- ~60-80 new tests
-- 5 new CLI subcommands
-- Version 0.4.0
+- ~12 file renames/splits (module structure)
+- ~8 new test files + 3 legacy file deletions
+- ~5 integration test cases
+- ~3 CI job additions
+- ~2 existing module refactors (security, decompose)
+- Version 0.5.0
