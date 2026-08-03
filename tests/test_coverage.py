@@ -1,3 +1,4 @@
+# GateGuard: Importers: none (test file). Affected API: none. Data schemas: none. User instruction: Phase 6 — add streaming tests.
 from __future__ import annotations
 
 import json
@@ -342,3 +343,156 @@ class TestTranspilerCoverage:
         with patch.object(t._client, "chat", new=AsyncMock(return_value={"status": "failed", "error": "fail"})):
             result = await t.verify("a", "b", "python")
             assert result["verified"] is False
+
+
+# ── Streaming Coverage ──
+
+
+async def _fake_chat_stream(tokens):
+    async def _gen(**__):
+        for t in tokens:
+            yield t
+    return _gen
+
+
+class TestTranspilerStream:
+    @pytest.mark.asyncio
+    async def test_transpile_stream_success(self):
+        t = CodeTranspiler()
+        with patch.object(t._client, "chat_stream", new=await _fake_chat_stream(["```python\n", "x=1\n", "```"])):
+            chunks = []
+            async for chunk in t.transpile_stream("code", "java", "python"):
+                chunks.append(chunk)
+            tokens_list = [c for c in chunks if c["type"] == "token"]
+            done = [c for c in chunks if c["type"] == "done"]
+            assert len(tokens_list) == 3
+            assert len(done) == 1
+            assert done[0]["result"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_transpile_stream_same_lang(self):
+        t = CodeTranspiler()
+        chunks = []
+        async for chunk in t.transpile_stream("code", "python", "python"):
+            chunks.append(chunk)
+        assert chunks[0]["result"]["status"] == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_transpile_stream_error(self):
+        t = CodeTranspiler()
+        async def _err(**__):
+            raise RuntimeError("boom")
+            yield
+        with patch.object(t._client, "chat_stream", new=_err):
+            chunks = []
+            async for chunk in t.transpile_stream("code", "java", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "failed"
+
+
+class TestRefactorStream:
+    @pytest.mark.asyncio
+    async def test_refactor_stream_success(self):
+        r = IncrementalRefactorer()
+        with patch.object(r._client, "chat_stream", new=await _fake_chat_stream(["```python\n", "y=2\n", "```"])):
+            chunks = []
+            async for chunk in r.refactor_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_refactor_stream_error(self):
+        r = IncrementalRefactorer()
+        async def _err(**__):
+            raise RuntimeError("boom")
+            yield
+        with patch.object(r._client, "chat_stream", new=_err):
+            chunks = []
+            async for chunk in r.refactor_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "failed"
+
+
+class TestUnitTestGeneratorStream:
+    @pytest.mark.asyncio
+    async def test_generate_unit_tests_stream_success(self):
+        from fusion_code_modelization.test_gen.generator import UnitTestGenerator
+        g = UnitTestGenerator()
+        with patch.object(g._client, "chat_stream", new=await _fake_chat_stream(["```python\n", "def test_x(): pass\n", "```"])):
+            chunks = []
+            async for chunk in g.generate_unit_tests_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "completed"
+            assert "test_x" in done[0]["result"]["tests"]
+
+    @pytest.mark.asyncio
+    async def test_generate_unit_tests_stream_error(self):
+        from fusion_code_modelization.test_gen.generator import UnitTestGenerator
+        g = UnitTestGenerator()
+        async def _err(**__):
+            raise RuntimeError("boom")
+            yield
+        with patch.object(g._client, "chat_stream", new=_err):
+            chunks = []
+            async for chunk in g.generate_unit_tests_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "failed"
+
+
+class TestSecurityScannerStream:
+    @pytest.mark.asyncio
+    async def test_scan_stream_static_only(self):
+        from fusion_code_modelization.security.scanner import SecurityScanner
+        s = SecurityScanner(static_only=True)
+        code = 'password = "secret"'
+        chunks = []
+        async for chunk in s.scan_stream(code, "python"):
+            chunks.append(chunk)
+        findings_chunks = [c for c in chunks if c["type"] == "findings"]
+        done = [c for c in chunks if c["type"] == "done"]
+        assert len(findings_chunks) >= 1
+        assert done[0]["result"]["scan_mode"] == "static"
+
+    @pytest.mark.asyncio
+    async def test_scan_stream_with_llm(self):
+        from fusion_code_modelization.security.scanner import SecurityScanner
+        s = SecurityScanner(mlx_url="http://localhost:11434/v1", static_only=False)
+        with patch.object(s._client, "chat_stream", new=await _fake_chat_stream(['[{"type":"xss","severity":"high","line":1,"description":"XSS"}]'])):
+            chunks = []
+            async for chunk in s.scan_stream("code", "javascript"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["scan_mode"] == "static+llm"
+            assert done[0]["result"]["total_findings"] >= 1
+
+
+class TestDocGenStream:
+    @pytest.mark.asyncio
+    async def test_generate_docs_stream_success(self):
+        from fusion_code_modelization.doc_gen import DocumentationGenerator
+        g = DocumentationGenerator(mlx_url="http://localhost:11434/v1")
+        with patch.object(g._client, "chat_stream", new=await _fake_chat_stream(["# Module Docs\n", "Some text\n"])):
+            chunks = []
+            async for chunk in g.generate_docs_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_generate_docs_stream_error(self):
+        from fusion_code_modelization.doc_gen import DocumentationGenerator
+        g = DocumentationGenerator(mlx_url="http://localhost:11434/v1")
+        async def _err(**__):
+            raise RuntimeError("boom")
+            yield
+        with patch.object(g._client, "chat_stream", new=_err):
+            chunks = []
+            async for chunk in g.generate_docs_stream("code", "python"):
+                chunks.append(chunk)
+            done = [c for c in chunks if c["type"] == "done"]
+            assert done[0]["result"]["status"] == "failed"

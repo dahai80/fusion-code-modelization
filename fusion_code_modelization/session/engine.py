@@ -7,6 +7,7 @@ from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import ModelConfig
+from fusion_code_modelization.core.progress import emit_complete, emit_error, emit_start
 
 from .state import Session, SessionConfig, SessionState
 from .store import SessionStore
@@ -156,7 +157,7 @@ class SessionEngine:
         logger.info("Session cloned: %s → %s", session_id, cloned.session_id)
         return cloned
 
-    async def chat(self, session_id: str, prompt: str, **kwargs) -> dict[str, Any]:
+    async def chat(self, session_id: str, prompt: str, *, progress_callback=None, **kwargs) -> dict[str, Any]:
         session = self._store.load(session_id)
         if not session:
             return {"status": "failed", "error": f"Session {session_id} not found"}
@@ -177,6 +178,7 @@ class SessionEngine:
             )
             self._clients[session_id] = client
 
+        emit_start("chat", f"session={session_id}", progress_callback)
         session.add_message("user", prompt)
         result = await client.chat(
             messages=[{"role": m.role, "content": m.content} for m in session.messages],
@@ -184,8 +186,10 @@ class SessionEngine:
         )
         if result["status"] == "completed":
             session.add_message("assistant", result["content"])
+            emit_complete("chat", f"session={session_id}", progress_callback)
         else:
             session.error = result.get("error", "")
+            emit_error("chat", result.get("error", "Unknown"), progress_callback)
         self._store.save(session)
         return result
 

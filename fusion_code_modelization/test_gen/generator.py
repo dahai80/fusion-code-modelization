@@ -1,6 +1,9 @@
+# GateGuard: Importers: test_gen/__init__.py, CLI. Affected API: adds generate_unit_tests_stream(). Data schemas: none. User instruction: Phase 6 — add streaming LLM support.
+
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
@@ -37,6 +40,33 @@ class UnitTestGenerator:
             tests = MLXClient.extract_code(result["content"])
             return {"status": "completed", "tests": tests, "language": language}
         return {"status": "failed", "error": result.get("error", "Unknown")}
+
+    async def generate_unit_tests_stream(self, code: str, language: str) -> AsyncIterator[dict[str, Any]]:
+        prompt = (
+            f"Generate comprehensive unit tests for this {language} code. "
+            f"Include edge cases, normal cases, and error cases. "
+            f"Use the standard testing framework for {language}.\n\n"
+            f"```{language}\n{code[:4000]}\n```"
+        )
+        accumulated = []
+        try:
+            async for token in self._client.chat_stream(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
+                temperature=0.1,
+            ):
+                accumulated.append(token)
+                yield {"type": "token", "content": token}
+
+            full = "".join(accumulated)
+            tests = MLXClient.extract_code(full)
+            yield {
+                "type": "done",
+                "result": {"status": "completed", "tests": tests, "language": language},
+            }
+        except Exception as e:
+            logger.error("generate_unit_tests_stream failed: %s", e)
+            yield {"type": "done", "result": {"status": "failed", "error": str(e)}}
 
     async def generate_integration_tests(self, components: list[dict], language: str) -> dict[str, Any]:
         desc = "\n".join(f"- {c.get('name', '?')}: {c.get('desc', '')[:200]}" for c in components)

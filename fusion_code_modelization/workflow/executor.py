@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.client import MLXClient
+from ..core.progress import emit_complete, emit_error, emit_progress, emit_start
 from .decomposer import SubTask, WorkflowPlan
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,9 @@ class WorkflowExecutor:
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
         self._results: dict[str, SubTaskResult] = {}
 
-    async def execute(self, plan: WorkflowPlan, max_parallel: int = 4) -> WorkflowResult:
+    async def execute(self, plan: WorkflowPlan, max_parallel: int = 4, *, progress_callback=None) -> WorkflowResult:
         logger.info("Executing workflow %s with %d subtasks", plan.plan_id, len(plan.subtasks))
+        emit_start("workflow", f"plan={plan.plan_id} tasks={len(plan.subtasks)}", progress_callback)
         result = WorkflowResult(
             plan_id=plan.plan_id,
             started_at=time.time(),
@@ -135,6 +137,11 @@ class WorkflowExecutor:
                 self._results[t.task_id] = sr
                 completed_ids.add(t.task_id)
 
+            done_count = len(completed_ids)
+            total_count = len(plan.subtasks)
+            pct = (done_count / total_count * 100) if total_count > 0 else 100.0
+            emit_progress("workflow", f"{done_count}/{total_count} tasks done", pct, progress_callback)
+
         result.subtask_results = list(self._results.values())
 
         all_ok = all(r.status == "completed" for r in result.subtask_results)
@@ -142,9 +149,11 @@ class WorkflowExecutor:
             result.merged_output = await self.merge_results(plan, result)
             result.status = "completed"
             plan.status = "completed"
+            emit_complete("workflow", f"plan={plan.plan_id}", progress_callback)
         else:
             result.status = "partial" if result.success_count > 0 else "failed"
             plan.status = result.status
+            emit_error("workflow", f"plan={plan.plan_id} status={result.status}", progress_callback)
 
         result.completed_at = time.time()
         logger.info(
@@ -209,9 +218,17 @@ class WorkflowExecutor:
         context: str = "",
         template: str = "generic",
         max_parallel: int = 4,
+        *,
+        progress_callback=None,
     ) -> WorkflowResult:
         from .decomposer import TaskDecomposer
 
+        emit_start("run_workflow", f"goal={goal[:60]}", progress_callback)
         decomposer = TaskDecomposer(client=self._client)
         plan = await decomposer.decompose(goal=goal, context=context, template=template)
-        return await self.execute(plan, max_parallel=max_parallel)
+        result = await self.execute(plan, max_parallel=max_parallel, progress_callback=progress_callback)
+        if result.status == "completed":
+            emit_complete("run_workflow", f"plan={plan.plan_id}", progress_callback)
+        else:
+            emit_error("run_workflow", f"plan={plan.plan_id} status={result.status}", progress_callback)
+        return result

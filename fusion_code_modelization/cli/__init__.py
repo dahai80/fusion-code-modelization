@@ -1,3 +1,5 @@
+# GateGuard: Importers: pyproject.toml [project.scripts]. Affected API: adds --stream flag to 5 subcommands, bumps VERSION. Data schemas: none. User instruction: Phase 6 — streaming CLI support.
+
 """Fusion-Code-Modelization CLI."""
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -42,24 +44,28 @@ def main():
     t.add_argument("--from", dest="source_lang", required=True, help="Source language")
     t.add_argument("--to", dest="target_lang", required=True, help="Target language")
     t.add_argument("--output", default="", help="Output file path")
+    t.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
 
     # refactor
     r = sub.add_parser("refactor", help="Refactor code incrementally")
     r.add_argument("file", help="File to refactor")
     r.add_argument("--instructions", default="", help="Refactoring instructions")
     r.add_argument("--output", default="", help="Output file path")
+    r.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
 
     # test-gen
     tg = sub.add_parser("test-gen", help="Generate unit tests")
     tg.add_argument("file", help="Source file")
     tg.add_argument("--language", default="", help="Programming language")
     tg.add_argument("--output", default="", help="Output file path")
+    tg.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
 
     # security
     s = sub.add_parser("security", help="Scan for security vulnerabilities")
     s.add_argument("file", help="File to scan")
     s.add_argument("--language", default="", help="Programming language")
     s.add_argument("--output", default="", help="Output file path")
+    s.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
 
     # session
     se = sub.add_parser("session", help="Manage parallel sessions")
@@ -106,6 +112,7 @@ def main():
     dg.add_argument("--type", dest="doc_type", default="module", choices=["module", "class", "api"], help="Doc type")
     dg.add_argument("--language", default="", help="Programming language")
     dg.add_argument("--output", default="", help="Output file path")
+    dg.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
 
     # audit
     au = sub.add_parser("audit", help="Enterprise audit system")
@@ -277,16 +284,31 @@ async def _cmd_transpile(args):
     code = Path(args.file).read_text(encoding="utf-8", errors="replace")
     transpiler = CodeTranspiler(mlx_url=args.mlx_url)
     print(f"Transpiling {args.file} from {args.source_lang} to {args.target_lang}...")
-    result = await transpiler.transpile(code, args.source_lang, args.target_lang)
-    if result["status"] == "completed":
-        output = result["code"]
-        if args.output:
-            Path(args.output).write_text(output, encoding="utf-8")
-            print(f"Transpiled code saved to {args.output}")
+    if getattr(args, "stream", False):
+        result = None
+        async for chunk in transpiler.transpile_stream(code, args.source_lang, args.target_lang):
+            if chunk["type"] == "token":
+                print(chunk["content"], end="", flush=True)
+            elif chunk["type"] == "done":
+                result = chunk["result"]
+        print()
+        if result and result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["code"], encoding="utf-8")
+                print(f"Transpiled code saved to {args.output}")
         else:
-            print(output)
+            print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
-        print(f"Error: {result.get('error', 'Unknown')}")
+        result = await transpiler.transpile(code, args.source_lang, args.target_lang)
+        if result["status"] == "completed":
+            output = result["code"]
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                print(f"Transpiled code saved to {args.output}")
+            else:
+                print(output)
+        else:
+            print(f"Error: {result.get('error', 'Unknown')}")
 
 
 async def _cmd_refactor(args):
@@ -294,16 +316,32 @@ async def _cmd_refactor(args):
 
     code = Path(args.file).read_text(encoding="utf-8", errors="replace")
     refactorer = IncrementalRefactorer(mlx_url=args.mlx_url)
+    lang = Path(args.file).suffix[1:] or "unknown"
     print(f"Refactoring {args.file}...")
-    result = await refactorer.refactor(code, Path(args.file).suffix[1:] or "unknown", args.instructions)
-    if result["status"] == "completed":
-        if args.output:
-            Path(args.output).write_text(result["refactored"], encoding="utf-8")
-            print(f"Refactored code saved to {args.output}")
+    if getattr(args, "stream", False):
+        result = None
+        async for chunk in refactorer.refactor_stream(code, lang, args.instructions):
+            if chunk["type"] == "token":
+                print(chunk["content"], end="", flush=True)
+            elif chunk["type"] == "done":
+                result = chunk["result"]
+        print()
+        if result and result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["refactored"], encoding="utf-8")
+                print(f"Refactored code saved to {args.output}")
         else:
-            print(result["refactored"])
+            print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
-        print(f"Error: {result.get('error', 'Unknown')}")
+        result = await refactorer.refactor(code, lang, args.instructions)
+        if result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["refactored"], encoding="utf-8")
+                print(f"Refactored code saved to {args.output}")
+            else:
+                print(result["refactored"])
+        else:
+            print(f"Error: {result.get('error', 'Unknown')}")
 
 
 async def _cmd_test_gen(args):
@@ -313,15 +351,30 @@ async def _cmd_test_gen(args):
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     generator = UnitTestGenerator(mlx_url=args.mlx_url)
     print(f"Generating tests for {args.file}...")
-    result = await generator.generate_unit_tests(code, lang)
-    if result["status"] == "completed":
-        if args.output:
-            Path(args.output).write_text(result["tests"], encoding="utf-8")
-            print(f"Tests saved to {args.output}")
+    if getattr(args, "stream", False):
+        result = None
+        async for chunk in generator.generate_unit_tests_stream(code, lang):
+            if chunk["type"] == "token":
+                print(chunk["content"], end="", flush=True)
+            elif chunk["type"] == "done":
+                result = chunk["result"]
+        print()
+        if result and result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["tests"], encoding="utf-8")
+                print(f"Tests saved to {args.output}")
         else:
-            print(result["tests"])
+            print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
-        print(f"Error: {result.get('error', 'Unknown')}")
+        result = await generator.generate_unit_tests(code, lang)
+        if result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["tests"], encoding="utf-8")
+                print(f"Tests saved to {args.output}")
+            else:
+                print(result["tests"])
+        else:
+            print(f"Error: {result.get('error', 'Unknown')}")
 
 
 async def _cmd_security(args):
@@ -331,12 +384,28 @@ async def _cmd_security(args):
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     scanner = SecurityScanner(mlx_url=args.mlx_url)
     print(f"Scanning {args.file} for vulnerabilities...")
-    result = await scanner.scan(code, lang)
-    print(f"Found {result['total_findings']} issue(s):")
-    for f in result.get("findings", []):
-        print(f"  [{f['severity']}] Line {f['line']}: {f['description']}")
-    if args.output:
-        Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    if getattr(args, "stream", False):
+        result = None
+        async for chunk in scanner.scan_stream(code, lang):
+            if chunk["type"] == "token":
+                print(chunk["content"], end="", flush=True)
+            elif chunk["type"] == "findings":
+                phase = chunk.get("phase", "unknown")
+                for f in chunk["findings"]:
+                    print(f"  [{phase}] [{f['severity']}] Line {f['line']}: {f['description']}")
+            elif chunk["type"] == "done":
+                result = chunk["result"]
+        if result:
+            print(f"\nTotal: {result['total_findings']} finding(s) [{result['scan_mode']}]")
+            if args.output:
+                Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    else:
+        result = await scanner.scan(code, lang)
+        print(f"Found {result['total_findings']} issue(s):")
+        for f in result.get("findings", []):
+            print(f"  [{f['severity']}] Line {f['line']}: {f['description']}")
+        if args.output:
+            Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
 def _cmd_session(args):
@@ -470,18 +539,33 @@ async def _cmd_doc_gen(args):
     gen = DocumentationGenerator(mlx_url=args.mlx_url)
     code = Path(args.file).read_text(encoding="utf-8", errors="replace")
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
-    if args.doc_type == "api":
-        result = await gen.generate_api_docs(code, lang)
-    else:
-        result = await gen.generate_docs(code, lang, doc_type=args.doc_type)
-    if result["status"] == "completed":
-        if args.output:
-            Path(args.output).write_text(result["documentation"], encoding="utf-8")
-            print(f"Docs saved to {args.output}")
+    if getattr(args, "stream", False):
+        result = None
+        async for chunk in gen.generate_docs_stream(code, lang, doc_type=args.doc_type):
+            if chunk["type"] == "token":
+                print(chunk["content"], end="", flush=True)
+            elif chunk["type"] == "done":
+                result = chunk["result"]
+        print()
+        if result and result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["documentation"], encoding="utf-8")
+                print(f"Docs saved to {args.output}")
         else:
-            print(result["documentation"])
+            print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
-        print(f"Error: {result.get('error', 'Unknown')}")
+        if args.doc_type == "api":
+            result = await gen.generate_api_docs(code, lang)
+        else:
+            result = await gen.generate_docs(code, lang, doc_type=args.doc_type)
+        if result["status"] == "completed":
+            if args.output:
+                Path(args.output).write_text(result["documentation"], encoding="utf-8")
+                print(f"Docs saved to {args.output}")
+            else:
+                print(result["documentation"])
+        else:
+            print(f"Error: {result.get('error', 'Unknown')}")
 
 
 async def _cmd_audit(args):

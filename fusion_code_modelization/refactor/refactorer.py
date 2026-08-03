@@ -1,6 +1,9 @@
+# GateGuard: Importers: refactor/__init__.py, CLI. Affected API: adds refactor_stream(). Data schemas: none. User instruction: Phase 6 — add streaming LLM support.
+
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
@@ -58,6 +61,40 @@ class IncrementalRefactorer:
                 "refactored_lines": len(refactored.splitlines()),
             }
         return {"status": "failed", "error": result.get("error", "Unknown")}
+
+    async def refactor_stream(
+        self, code: str, language: str, instructions: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
+        prompt = f"Refactor the following {language} code. Improve code quality without changing business logic.\n"
+        if instructions:
+            prompt += f"Specific instructions: {instructions}\n"
+        prompt += f"\n```{language}\n{code[:4000]}\n```\n\nRefactored code:"
+
+        accumulated = []
+        try:
+            async for token in self._client.chat_stream(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
+                temperature=0.1,
+            ):
+                accumulated.append(token)
+                yield {"type": "token", "content": token}
+
+            full = "".join(accumulated)
+            refactored = MLXClient.extract_code(full)
+            yield {
+                "type": "done",
+                "result": {
+                    "status": "completed",
+                    "original": code,
+                    "refactored": refactored,
+                    "original_lines": len(code.splitlines()),
+                    "refactored_lines": len(refactored.splitlines()),
+                },
+            }
+        except Exception as e:
+            logger.error("refactor_stream failed: %s", e)
+            yield {"type": "done", "result": {"status": "failed", "error": str(e)}}
 
     async def dual_run_verify(self, original_code: str, refactored_code: str, language: str) -> dict[str, Any]:
         result = await self._client.chat(

@@ -6,7 +6,9 @@ import json
 import logging
 from collections import defaultdict
 
+# GateGuard: Importers: decompose/__init__.py. Affected API: detect_boundaries_llm gains progress_callback kwarg. Data schemas: none. User instruction: Phase 6 — wire progress callbacks into long-running LLM methods.
 from ..core.client import MLXClient
+from ..core.progress import emit_complete, emit_error, emit_progress, emit_start
 from .models import BoundarySuggestion, CouplingEdge
 
 logger = logging.getLogger(__name__)
@@ -79,8 +81,10 @@ class BoundaryDetector:
         logger.info("Static detection found %d boundaries", len(suggestions))
         return suggestions
 
-    async def detect_boundaries_llm(self, graph: dict) -> list[BoundarySuggestion]:
+    async def detect_boundaries_llm(self, graph: dict, *, progress_callback=None) -> list[BoundarySuggestion]:
+        emit_start("detect_boundaries_llm", f"nodes={len(graph.get('nodes', {}))}", progress_callback)
         coupling = self.compute_coupling(graph)
+        emit_progress("detect_boundaries_llm", f"coupling_edges={len(coupling)}", 30, progress_callback)
         graph_str = json.dumps(
             {"nodes": list(graph.get("nodes", {}).keys())[:100], "edges": [e.to_dict() for e in coupling[:50]]},
             indent=2,
@@ -92,6 +96,7 @@ class BoundaryDetector:
         sizes_str = json.dumps(dict(sizes), indent=2)
         prompt = DECOMPOSE_PROMPT.format(graph=graph_str, sizes=sizes_str)
         try:
+            emit_progress("detect_boundaries_llm", "calling LLM", 50, progress_callback)
             response = await self._client.chat(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
@@ -111,7 +116,9 @@ class BoundaryDetector:
                     )
                 )
             logger.info("LLM detection found %d boundaries", len(suggestions))
+            emit_complete("detect_boundaries_llm", f"boundaries={len(suggestions)}", progress_callback)
             return suggestions
         except (json.JSONDecodeError, KeyError) as e:
             logger.error("LLM boundary detection failed: %s", e)
+            emit_error("detect_boundaries_llm", str(e), progress_callback)
             return self.detect_boundaries_static(graph)

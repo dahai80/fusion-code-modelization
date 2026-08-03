@@ -7,3 +7,6 @@ htmlcov/
 .pytest_cache/
 .agent_comm_state/
 .fusion/
+ARCHITECTURE_COMPLIANCE.md
+CLAUDE.md
+PLAN.md

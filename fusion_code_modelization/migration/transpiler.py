@@ -1,6 +1,9 @@
+# GateGuard: Importers: migration/__init__.py, CLI. Affected API: adds transpile_stream(). Data schemas: none. User instruction: Phase 6 — add streaming LLM support.
+
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
@@ -64,6 +67,59 @@ class CodeTranspiler:
             "source_lang": source_lang,
             "target_lang": target_lang,
         }
+
+    async def transpile_stream(
+        self, code: str, source_lang: str, target_lang: str, preserve_logic: bool = True
+    ) -> AsyncIterator[dict[str, Any]]:
+        if source_lang == target_lang:
+            yield {"type": "done", "result": {"status": "skipped", "code": code, "message": "Same language"}}
+            return
+
+        instruction = (
+            f"Convert the following {source_lang} code to {target_lang}. "
+            f"Preserve the exact business logic. "
+            f"Use idiomatic {target_lang} patterns and conventions. "
+            f"Add comments explaining any non-obvious translations."
+        )
+        if preserve_logic:
+            instruction += " CRITICAL: The business logic must be 100% preserved."
+
+        prompt = f"{instruction}\n\n```{source_lang}\n{code}\n```\n\n```{target_lang}"
+
+        accumulated = []
+        try:
+            async for token in self._client.chat_stream(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=4096,
+                temperature=0.1,
+            ):
+                accumulated.append(token)
+                yield {"type": "token", "content": token}
+
+            full = "".join(accumulated)
+            transpiled = MLXClient.extract_code(full, target_lang)
+            yield {
+                "type": "done",
+                "result": {
+                    "status": "completed",
+                    "code": transpiled,
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
+                    "original_size": len(code),
+                    "transpiled_size": len(transpiled),
+                },
+            }
+        except Exception as e:
+            logger.error("transpile_stream failed: %s", e)
+            yield {
+                "type": "done",
+                "result": {
+                    "status": "failed",
+                    "error": str(e),
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
+                },
+            }
 
     async def verify(self, original: str, transpiled: str, language: str) -> dict[str, Any]:
         result = await self._client.chat(
