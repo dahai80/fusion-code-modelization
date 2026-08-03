@@ -7,10 +7,10 @@
 Modernize, refactor, and migrate legacy codebases — entirely local, powered by fusion-mlx.
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-674+-success.svg)](tests/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-704+-success.svg)](tests/)
 
-[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Documentation](docs/)
+[Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Changelog](#changelog)
 
 </div>
 
@@ -28,6 +28,8 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Safe incremental refactoring** | ✅ Test-first + dual-run verify | ✅ |
 | **Security scanning** | ✅ Static + LLM-powered | ✅ |
 | **Enterprise pipeline** | ✅ Git/CI-CD/PR/Audit logs | ✅ |
+| **Streaming LLM output** | ✅ Real-time token streaming | ❌ |
+| **Progress callbacks** | ✅ Composable callback system | ❌ |
 | **Microservice decomposition** | ✅ | ✅ |
 | **Git integration** | ✅ Gitee, GitHub, GitLab | ✅ GitHub only |
 | **Parallel multi-agent sessions** | ✅ SessionEngine | ✅ |
@@ -39,14 +41,11 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Enterprise audit** | ✅ JSONL + search/export/statistics | ✅ |
 | **Cluster scheduling** | ✅ Node registration + auto-schedule | ✅ |
 | **MCP plugin platform** | ✅ Registry + lifecycle management | ✅ |
-| **Snapshot optimization** | ✅ compress/verify/auto-cleanup | ✅ |
-| **Benchmark suites** | ✅ Code quality, performance, migration, security benchmarks | ✅ |
+| **Benchmark suites** | ✅ Code quality, performance, migration, security | ✅ |
 | **Cluster load balancing** | ✅ 4 strategies (round-robin/least-loaded/weighted/affinity) | ✅ |
 | **Offline deployment** | ✅ Full-offline/semi-offline/online with capability matrix | ✅ |
 | **Full-chain traceability** | ✅ Artifact tracking with forward/backward BFS traversal | ✅ |
 | **Agent cross-machine comm** | ✅ Channel-based collaboration with conflict resolution | ✅ |
-
-**One sentence:** Fusion-Code-Modelization is the local-first, privacy-compliant alternative to Claude Code Modernization — powered by fusion-mlx on Apple Silicon.
 
 ---
 
@@ -69,31 +68,23 @@ pip install -e ".[test]"
 ### Analyze a Codebase
 
 ```bash
-# Analyze dependencies and generate report
 fusion-code-modelization analyze /path/to/codebase --output=report.md
-
-# View report
-cat report.md
 ```
 
 ### Transpile Code Between Languages
 
 ```bash
-# Convert Python to Java
+# Python → Java
 fusion-code-modelization transpile input.py --from=python --to=java --output=output.java
 
-# Convert COBOL to Go
-fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --output=modern.go
+# COBOL → Go (with real-time streaming)
+fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --stream
 ```
 
 ### Refactor Code Safely
 
 ```bash
-# Refactor with test-first approach
-fusion-code-modelization refactor legacy_code.py --output=refactored.py
-
-# With specific instructions
-fusion-code-modelization refactor messy_code.py --instructions="Extract helper functions, add type hints"
+fusion-code-modelization refactor legacy_code.py --instructions="add type hints" --output=refactored.py
 ```
 
 ### Generate Tests
@@ -108,6 +99,16 @@ fusion-code-modelization test-gen source.py --output=tests.py
 fusion-code-modelization security legacy_code.py --output=security_report.json
 ```
 
+### Generate Documentation
+
+```bash
+# Module docs
+fusion-code-modelization doc-gen source.py --type=module --output=docs.md
+
+# API docs (streaming)
+fusion-code-modelization doc-gen api.py --type=api --stream
+```
+
 ---
 
 ## CLI Reference
@@ -115,17 +116,17 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | Command | Description |
 |---------|-------------|
 | `analyze <path> [--output]` | Analyze codebase dependencies and generate report |
-| `transpile <file> --from --to [--output]` | Transpile code between languages |
-| `refactor <file> [--instructions] [--output]` | Refactor code incrementally |
-| `test-gen <file> [--language] [--output]` | Generate unit tests |
-| `security <file> [--language] [--output]` | Scan for security vulnerabilities |
+| `transpile <file> --from --to [--output] [--stream]` | Transpile code between languages |
+| `refactor <file> [--instructions] [--output] [--stream]` | Refactor code incrementally |
+| `test-gen <file> [--language] [--output] [--stream]` | Generate unit tests |
+| `security <file> [--language] [--output] [--stream]` | Scan for security vulnerabilities |
+| `doc-gen <file> [--type] [--language] [--output] [--stream]` | Documentation generation (module/class/api) |
 | `session <action> [--id] [--name]` | Manage parallel sessions (create/list/start/pause/resume/complete/delete) |
 | `snapshot <action> [--project-dir] [--id] [--label] [--steps]` | Incremental snapshots and rollback (create/list/restore/rewind/delete) |
 | `workflow <action> [--description] [--template] [--max-parallel]` | Dynamic task decomposition and execution (decompose/run) |
 | `memory <action> [--project-dir] [--query]` | Three-tier project memory (init/list/load/query) |
 | `sandbox <action> [--path] [--mode]` | Security sandbox and audit (check/audit) |
 | `decompose <path> [--method] [--output]` | Microservice boundary detection (static/llm) |
-| `doc-gen <file> [--type] [--language] [--output]` | Documentation generation (module/class/api) |
 | `audit <action> [--actor] [--severity]` | Enterprise audit logging (log/search/export/stats/cleanup) |
 | `cluster <action> [--node-id] [--session-id]` | Distributed cluster scheduling (discover/dispatch/status/schedule/migrate/register/tasks) |
 | `plugin <action> [--plugin-id] [--query]` | MCP plugin platform (list/search/install/load/unload/execute/status) |
@@ -138,6 +139,18 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | `--json` | Global flag: output results as JSON |
 | `--verbose` / `-v` | Global flag: enable debug logging |
 | `--quiet` / `-q` | Global flag: suppress non-error output |
+
+### Streaming Mode
+
+Commands that call the LLM support `--stream` for real-time token output:
+
+```bash
+fusion-code-modelization transpile src.py --from=python --to=java --stream
+fusion-code-modelization refactor src.py --stream
+fusion-code-modelization test-gen src.py --stream
+fusion-code-modelization security src.py --stream
+fusion-code-modelization doc-gen src.py --stream
+```
 
 ### Supported Languages
 
@@ -176,23 +189,25 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │  │ DependencyAnaly│  │ CodeTranspiler │  │ Incremental      │  │
 │  │ zer            │  │ (COBOL→Java,   │  │ Refactorer       │  │
 │  │ (dead code,    │  │  VB6→C#, etc.) │  │ (test-first,     │  │
-│  │  tech debt)    │  └────────────────┘  │  dual-run verify) │  │
-│  └────────────────┘                      └──────────────────┘  │
-│                                                                  │
+│  │  tech debt)    │  │  + streaming   │  │  dual-run verify, │  │
+│  └────────────────┘  └────────────────┘  │  + streaming)    │  │
+│                                          └──────────────────┘  │
 │  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
 │  │ TestGenerator  │  │ SecurityScanner│  │ PipelineIntegrat │  │
 │  │ (unit/integrat │  │ (secrets,      │  │ or               │  │
-│  │  ion tests)    │  │  injections)   │  │ (Git/CI-CD/PR)   │  │
-│  └────────────────┘  └────────────────┘  └──────────────────┘  │
+│  │  ion tests,    │  │  injections,   │  │ (Git/CI-CD/PR)   │  │
+│  │  + streaming)  │  │  + streaming)  │  └──────────────────┘  │
+│  └────────────────┘  └────────────────┘                        │
 │                                                                  │
 │  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
 │  │ PRGenerator    │  │ DocGenerator   │  │ Microservice     │  │
 │  │ (PR descriptions│  │ (migration     │  │ Decomposer       │  │
-│  │  & changelogs) │  │  reports, API) │  │ (boundary analysis│ │
-│  └────────────────┘  └────────────────┘  └──────────────────┘  │
+│  │  & changelogs) │  │  reports, API, │  │ (boundary analysis│ │
+│  └────────────────┘  │  + streaming)  │  └──────────────────┘  │
+│                       └────────────────┘                        │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │              Platform Layer (NEW)                          │  │
+│  │              Platform Layer                                 │  │
 │  │                                                            │  │
 │  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
 │  │  │ Session     │ │ Snapshot     │ │ Security Sandbox   │  │  │
@@ -204,29 +219,29 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 │  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
 │  │  │ Dynamic     │ │ Project      │ │ MLXClient          │  │  │
 │  │  │ Workflow    │ │ Memory       │ │ (unified HTTP      │  │  │
-│  │  │ (LLM task   │ │ (FUSION.md   │ │  client)           │  │  │
+│  │  │ (LLM task   │ │ (FUSION.md   │ │  + streaming)      │  │  │
 │  │  │  decompose) │ │  3-tier)     │ │                    │  │  │
 │  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
 │  │                                                            │  │
 │  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
-│  │  │ DualStack   │ │ Enterprise   │ │ Cluster            │  │  │
-│  │  │ Client      │ │ Audit Logger │ │ Scheduler          │  │  │
-│  │  │ (local/cloud│ │ (JSONL store │ │ (node discovery,   │  │  │
-│  │  │  routing)   │ │  + export)   │ │  auto-schedule)    │  │  │
+│  │  │ Progress    │ │ DualStack    │ │ Enterprise         │  │  │
+│  │  │ Callbacks   │ │ Client       │ │ Audit Logger       │  │  │
+│  │  │ (composable │ │ (local/cloud │ │ (JSONL store       │  │  │
+│  │  │  events)    │ │  routing)    │ │  + export)         │  │  │
 │  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
 │  │                                                            │  │
-│  │  ┌─────────────┐ ┌──────────────┐                         │  │
-│  │  │ Plugin      │ │ Snapshot     │                         │  │
-│  │  │ Platform    │ │ Optimizer    │                         │  │
-│  │  │ (registry + │ │ (compress +  │                         │  │
-│  │  │  lifecycle) │ │  verify)     │                         │  │
-│  │  └─────────────┘ └──────────────┘                         │  │
+│  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────────┐  │  │
+│  │  │ Cluster     │ │ Plugin       │ │ Snapshot           │  │  │
+│  │  │ Scheduler   │ │ Platform     │ │ Optimizer          │  │  │
+│  │  │ (auto-sched)│ │ (registry +  │ │ (compress +        │  │  │
+│  │  │             │ │  lifecycle)  │ │  verify)           │  │  │
+│  │  └─────────────┘ └──────────────┘ └────────────────────┘  │  │
 │  │                                                            │  │
-│  │  ┌─────────────────────── V2.0 ──────────────────────────┐│  │
-│  │  │ Benchmark  │ LoadBalancer│ Offline    │ Trace  │AgentComm││
-│  │  │ Suites &   │ 4-strategy │ Deploy     │ Full-  │Channel ││
-│  │  │ Reports    │ scheduling │ packages   │ chain  │Coord.  ││
-│  │  └────────────┴────────────┴────────────┴────────┴────────┘│  │
+│  │  ┌──────────────────── V2.0 ────────────────────────────┐│  │
+│  │  │ Benchmark │ LoadBalancer │ Offline    │ Trace │AgentComm││
+│  │  │ Suites &  │ 4-strategy  │ Deploy     │ Full- │Channel ││
+│  │  │ Reports   │ scheduling  │ packages   │ chain │Coord.  ││
+│  │  └───────────┴─────────────┴────────────┴───────┴────────┘│  │
 │  └────────────────────────────────────────────────────────────┘  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ HTTP API (all model calls)
@@ -241,95 +256,32 @@ fusion-code-modelization security legacy_code.py --output=security_report.json
 | Module | File | Description |
 |--------|------|-------------|
 | **Dependency Analyzer** | `analyzer/dependency.py` | Code dependency graph, dead code detection, tech debt estimation |
-| **Code Transpiler** | `migration/transpiler.py` | Cross-language migration (COBOL→Java, VB6→C#, etc.) |
-| **Incremental Refactorer** | `refactor/refactorer.py` | Test-first refactoring with dual-run verification |
-| **Test Generator** | `test_gen/generator.py` | Unit and integration test generation (UnitTestGenerator) |
-| **Security Scanner** | `security/scanner.py` | Multi-mode scanning: static-only, static+LLM, static+fusion-security delegation |
+| **Code Transpiler** | `migration/transpiler.py` | Cross-language migration + streaming (`transpile_stream()`) |
+| **Incremental Refactorer** | `refactor/refactorer.py` | Test-first refactoring with dual-run verification + streaming |
+| **Test Generator** | `test_gen/generator.py` | Unit and integration test generation + streaming |
+| **Security Scanner** | `security/scanner.py` | Multi-mode scanning: static-only, static+LLM, static+fusion-security + streaming |
+| **Doc Generator** | `doc_gen/generator.py` | Module/class/API doc generation + streaming |
+| **Progress Callbacks** | `core/progress.py` | ProgressEvent, LoggingProgressCallback, CompositeProgressCallback |
 | **Pipeline Integrator** | `pipeline/integrator.py` | Git/CI-CD integration, PR creation, audit logging |
-| **AuditLog** | `pipeline/models.py` | Audit trail data model with to_dict() serialization |
-| **Priority Scorer** | `pipeline/scorer.py` | Migration priority scoring (business + tech debt) |
 | **PR Generator** | `pr_gen/pr_generator.py` | PR description and changelog generation |
-| **Doc Generator** | `pr_gen/doc_generator.py` | Migration reports and API documentation |
-| **Microservice Decomposer** | `pr_gen/decomposer.py` | Monolith boundary analysis with multi-granularity (MICROSERVICE/MODULE/PACKAGE) |
-| **MLXClient** | `core/client.py` | Unified HTTP client for fusion-mlx API, code extraction |
-| **ModelConfig** | `core/config.py` | Model configuration with presets (default/code/analysis/creative/fast) |
+| **Microservice Decomposer** | `pr_gen/decomposer.py` | Monolith boundary analysis with multi-granularity |
+| **MLXClient** | `core/client.py` | Unified HTTP client for fusion-mlx API, code extraction, streaming |
+| **ModelConfig** | `core/config.py` | Model configuration with presets + dual-stack routing |
 | **Session Engine** | `session/engine.py` | Parallel multi-agent sessions with state machine lifecycle |
-| **Session Store** | `session/store.py` | JSON file persistence for session state |
 | **Snapshot Manager** | `snapshot/manager.py` | Incremental file snapshots with create/restore/rewind |
-| **File Delta** | `snapshot/delta.py` | difflib-based file diff computation and application |
 | **Security Sandbox** | `sandbox/guard.py` | Three-tier (readonly/manual/auto) file and command guard |
-| **Sandbox Policy** | `sandbox/policy.py` | Path boundaries, dangerous command blocking, sensitive file protection |
-| **Sandbox Audit** | `sandbox/audit.py` | Operation logging with JSON-line persistence |
 | **Task Decomposer** | `workflow/decomposer.py` | LLM-powered task decomposition with dependency resolution |
-| **Workflow Executor** | `workflow/executor.py` | Parallel sub-agent execution with merge/converge |
-| **Workflow Templates** | `workflow/decomposer.py` | Pre-built templates (legacy_migration, security_scan, batch_api) |
+| **Workflow Executor** | `workflow/executor.py` | Parallel sub-agent execution with progress callbacks |
 | **Memory Tier Manager** | `memory/tier.py` | Three-tier FUSION.md (global/project/directory) |
-| **Memory Context** | `memory/context.py` | LLM-enhanced memory summarization and query |
 | **Boundary Detector** | `decompose/detector.py` | Coupling analysis + LLM-powered microservice boundary detection |
-| **CouplingEdge/BoundarySuggestion** | `decompose/models.py` | Decompose data models |
-| **Documentation Generator** | `doc_gen/generator.py` | Module/class/API doc generation + README builder |
-| **DocSection** | `doc_gen/models.py` | Documentation section data model |
-| **DualStackClient** | `core/client.py` | Local/cloud dual-stack with automatic routing and fallback |
-| **ModelRouter** | `core/config.py` | Complexity-based routing (LOCAL_FIRST/CLOUD_FIRST/COMPLEXITY_BASED) |
-| **DualModelConfig** | `core/config.py` | Dual model stack configuration with routing strategy |
 | **AuditLogger** | `audit/logger.py` | Enterprise audit: log, search, export (JSON/CSV/Markdown), statistics |
-| **AuditStore** | `audit/store.py` | JSONL-based audit persistence with rotation and cleanup |
-| **AuditEntry/Filter/Report** | `audit/models.py` | Audit data models with 18 action types, 3 severity levels |
 | **ClusterScheduler** | `cluster/scheduler.py` | Node registration, task dispatch, auto-scheduling by load |
-| **NodeClient** | `cluster/node_client.py` | HTTP client for cluster node health check and task submission |
-| **NodeInfo/TaskDispatch** | `cluster/models.py` | Cluster data models with load_score property |
 | **PluginManager** | `plugin/manager.py` | Plugin lifecycle: load/unload/execute with action validation |
-| **PluginRegistry** | `plugin/registry.py` | JSON-based plugin registry with install/update/disable |
-| **PluginManifest** | `plugin/models.py` | Plugin manifest with 9 categories, 5 statuses, action schemas |
 | **BenchmarkRunner** | `benchmark/runner.py` | Benchmark suite execution, report generation, trend comparison |
-| **PredefinedBenchmarkSuites** | `benchmark/suite.py` | Code quality, performance, migration quality, security suites |
 | **LoadBalancer** | `loadbalancer/balancer.py` | 4-strategy cluster load balancing with capacity prediction |
 | **OfflineManager** | `offline/manager.py` | Offline mode detection, package prepare/validate/restore |
-| **OfflineCache** | `offline/cache.py` | Model/plugin cache with eviction and size management |
 | **TraceTracker** | `trace/tracker.py` | BFS forward/backward artifact tracing, coverage reports |
-| **TraceStore** | `trace/store.py` | JSONL-based trace graph with adjacency lists |
 | **CollaborationCoordinator** | `agent_comm/coordinator.py` | Multi-agent collaboration with conflict detection/resolution |
-| **AgentChannelManager** | `agent_comm/channel.py` | Channel-based message routing with broadcast support |
-| **OfflineConfig** | `core/config.py` | Offline mode configuration with auto-detect |
-
----
-
-## Comparison with Claude Code Modernization
-
-| Capability | Claude Code | Fusion-Code-Modelization |
-|------------|-------------|--------------------------|
-| Code dependency analysis | ✅ | ✅ |
-| Dead code detection | ✅ | ✅ |
-| Tech debt estimation | ✅ | ✅ |
-| Cross-language migration | ✅ COBOL→Java, etc. | ✅ COBOL→Java, VB6→C#, etc. |
-| Test-first refactoring | ✅ | ✅ |
-| Dual-run verification | ✅ | ✅ |
-| Unit test generation | ✅ | ✅ |
-| Security vulnerability scanning | ✅ | ✅ |
-| Enterprise pipeline (Git/CI-CD) | ✅ | ✅ |
-| Migration priority scoring | ✅ | ✅ |
-| Microservice decomposition | ✅ | ✅ |
-| Audit logging | ✅ | ✅ |
-| Parallel multi-agent sessions | ✅ | ✅ SessionEngine |
-| Dynamic Workflow | ✅ | ✅ TaskDecomposer + WorkflowExecutor |
-| Incremental snapshots | ✅ | ✅ SnapshotManager + FileDelta |
-| Three-tier project memory | ✅ CLAUDE.md | ✅ FUSION.md |
-| Security sandbox | ✅ | ✅ three-tier (readonly/manual/auto) |
-| **Local offline** | ❌ Cloud-only | ✅ **100% local** |
-| **Data privacy** | ❌ Code uploaded to cloud | ✅ **Data never leaves device** |
-| **China compliance** | ❌ Violates data security law | ✅ **Full compliance** |
-| **Zero API cost** | ❌ Enterprise subscription | ✅ **Free** |
-| **Gitee/GitLab support** | ❌ GitHub only | ✅ **All platforms** |
-| **Dual-stack model routing** | ✅ | ✅ **local/cloud + fallback** |
-| **Enterprise audit system** | ✅ | ✅ **JSONL + export** |
-| **Cluster scheduling** | ✅ | ✅ **auto-schedule by load** |
-| **MCP plugin platform** | ✅ | ✅ **registry + lifecycle** |
-| **Snapshot optimization** | ✅ | ✅ **compress/verify/cleanup** |
-| **Benchmark suites** | ❌ | ✅ **quality/perf/migration/security** |
-| **Cluster load balancing** | ❌ | ✅ **4 strategies + capacity prediction** |
-| **Offline deployment** | ❌ | ✅ **full/semi/online with packages** |
-| **Full-chain traceability** | ❌ | ✅ **BFS forward/backward tracing** |
-| **Agent cross-machine comm** | ❌ | ✅ **channels + conflict resolution** |
 
 ---
 
@@ -344,29 +296,61 @@ pytest tests/
 
 # Run with coverage
 pytest tests/ --cov=fusion_code_modelization
+
+# Lint
+ruff check .
+ruff format --check .
 ```
 
 ### Test Stats
-- **674+ tests**, 0 failures
+- **704+ tests**, 0 failures
 - **Integration tests** covering cross-module workflows
+- **Streaming tests** for all 5 LLM modules
 - **Python 3.12+** compatible
 
-### Lint & CI
+---
 
-```bash
-pip install -e ".[lint,dev]"
-ruff check .
-ruff format --check .
-mypy fusion_code_modelization/ --ignore-missing-imports
-bandit -r fusion_code_modelization/ -ll -ii
-pytest tests/ --cov=fusion_code_modelization --cov-fail-under=80
-```
+## Changelog
+
+### v0.6.0 — Runtime Maturity + Streaming UX
+- **Streaming LLM support**: `transpile_stream()`, `refactor_stream()`, `generate_unit_tests_stream()`, `scan_stream()`, `generate_docs_stream()` — real-time token output via SSE
+- **CLI `--stream` flag**: Added to transpile, refactor, test-gen, security, doc-gen subcommands
+- **Progress callback system**: `ProgressEvent`, `LoggingProgressCallback`, `CompositeProgressCallback` with composable emit helpers
+- **Progress wired into**: session/engine, workflow/executor, decompose/detector
+- **SecurityScanner fix**: `_check_hardcoded_secrets` regex corrected; `static_only` backward-compatible default
+- **704 tests passing**, lint clean
+
+### v0.5.0 — Architecture Compliance & Module Split
+- Architecture compliance fixes across all modules
+- `__init__.py` monoliths split into proper module files
+- Dedicated test files for 8 uncovered modules
+- Cross-module integration tests
+- CLI hardening and CI enhancement
+- 674 tests passing
+
+### v0.3.0 — Enterprise Platform
+- Enterprise audit system (JSONL + search/export/statistics)
+- Cluster scheduling (node discovery + auto-schedule)
+- MCP plugin platform (registry + lifecycle)
+- Snapshot optimization (compress/verify/auto-cleanup)
+- CLI extensions for all new modules
+
+### v0.2.0 — Platform Expansion
+- 6 new modules: benchmark, loadbalancer, offline, trace, agent_comm, dual-stack routing
+- CLI subcommands for all new modules
+- Ruff lint + GitHub Actions CI
+
+### v0.1.0 — Initial Release
+- Core engine: dependency analysis, transpiler, refactorer, test generator, security scanner
+- Pipeline integrator, PR generator, doc generator, microservice decomposer
+- Session engine, snapshot manager, sandbox guard
+- Dynamic workflow, project memory, boundary detector
 
 ---
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE)
 
 ## Acknowledgments
 
