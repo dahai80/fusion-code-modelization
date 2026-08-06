@@ -25,9 +25,7 @@ class ProgressEvent:
 
     def __post_init__(self):
         if self.event_type not in self.VALID_TYPES:
-            raise ValueError(
-                f"Invalid event_type '{self.event_type}', must be one of {sorted(self.VALID_TYPES)}"
-            )
+            raise ValueError(f"Invalid event_type '{self.event_type}', must be one of {sorted(self.VALID_TYPES)}")
 
 
 class ProgressCallback(Protocol):
@@ -60,7 +58,12 @@ def emit_start(operation: str, detail: str = "", callback: Callable[[ProgressEve
         callback(ProgressEvent(event_type="start", operation=operation, detail=detail))
 
 
-def emit_progress(operation: str, detail: str = "", percent: float | None = None, callback: Callable[[ProgressEvent], None] | None = None) -> None:
+def emit_progress(
+    operation: str,
+    detail: str = "",
+    percent: float | None = None,
+    callback: Callable[[ProgressEvent], None] | None = None,
+) -> None:
     if callback:
         callback(ProgressEvent(event_type="progress", operation=operation, detail=detail, percent=percent))
 

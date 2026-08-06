@@ -201,3 +201,70 @@ class SessionEngine:
         if not session:
             return None
         return session.to_dict()
+
+    async def distribute_session(self, session_id: str, nodes: list[str], description: str = "") -> dict[str, Any]:
+        session = self._store.load(session_id)
+        if not session:
+            return {"status": "failed", "error": f"Session {session_id} not found"}
+        if not nodes:
+            return {"status": "failed", "error": "No cluster nodes provided"}
+        from fusion_code_modelization.cluster import ClusterScheduler, NodeInfo
+
+        session.config.cluster_nodes = list(nodes)
+        if not session.transition(SessionState.CLUSTER_RUNNING):
+            return {"status": "failed", "error": f"Cannot transition from {session.state.value} to cluster_running"}
+        self._store.save(session)
+
+        scheduler = ClusterScheduler()
+        dispatches = []
+        for node_id in nodes:
+            node = scheduler._nodes.get(node_id)
+            if not node:
+                node = NodeInfo(node_id=node_id)
+                scheduler.register_node(node)
+            task = await scheduler.dispatch_task(session_id, node_id, description or session.name)
+            dispatches.append(task.to_dict())
+        logger.info("Distributed session %s to %d nodes", session_id, len(nodes))
+        return {"status": "completed", "session_id": session_id, "dispatches": dispatches}
+
+    async def cluster_status(self, session_id: str) -> dict[str, Any]:
+        session = self._store.load(session_id)
+        if not session:
+            return {"status": "failed", "error": f"Session {session_id} not found"}
+        nodes = session.config.cluster_nodes
+        if not nodes:
+            return {"status": "completed", "session_id": session_id, "cluster_state": "local", "nodes": []}
+        from fusion_code_modelization.cluster import ClusterScheduler
+
+        scheduler = ClusterScheduler()
+        tasks = [t for t in scheduler.list_tasks() if t.session_id == session_id]
+        return {
+            "status": "completed",
+            "session_id": session_id,
+            "cluster_state": session.state.value,
+            "nodes": nodes,
+            "tasks": [t.to_dict() for t in tasks],
+        }
+
+    async def merge_cluster_results(self, session_id: str) -> dict[str, Any]:
+        session = self._store.load(session_id)
+        if not session:
+            return {"status": "failed", "error": f"Session {session_id} not found"}
+        nodes = session.config.cluster_nodes
+        if not nodes:
+            return {"status": "failed", "error": "Session has no cluster nodes"}
+        from fusion_code_modelization.cluster import ClusterScheduler
+
+        scheduler = ClusterScheduler()
+        tasks = [t for t in scheduler.list_tasks() if t.session_id == session_id and t.status.value == "completed"]
+        outputs = []
+        for t in tasks:
+            result = t.result or {}
+            content = result.get("content") or result.get("output") or ""
+            if content:
+                outputs.append({"node": t.target_node, "output": content})
+        merged = "\n---\n".join(f"[{o['node']}]: {o['output']}" for o in outputs)
+        session.transition(SessionState.COMPLETED)
+        self._store.save(session)
+        logger.info("Merged %d cluster results for session %s", len(outputs), session_id)
+        return {"status": "completed", "session_id": session_id, "merged": merged, "parts": len(outputs)}

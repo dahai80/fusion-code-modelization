@@ -228,3 +228,101 @@ class TestSessionEngine:
             engine.pause(session.session_id)
             result = await engine.chat(session.session_id, "hello")
             assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_distribute_session(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            session = engine.create_session(name="cluster-test")
+            with patch(
+                "fusion_code_modelization.cluster.scheduler.ClusterScheduler.dispatch_task",
+                new=AsyncMock(
+                    return_value=type("TD", (), {"to_dict": lambda self: {"task_id": "tk1", "target_node": "node-a"}})()
+                ),
+            ):
+                result = await engine.distribute_session(session.session_id, ["node-a"], "migrate")
+            assert result["status"] == "completed"
+            assert len(result["dispatches"]) == 1
+            loaded = engine.get_session(session.session_id)
+            assert loaded.state.value == "cluster_running"
+            assert loaded.config.cluster_nodes == ["node-a"]
+
+    @pytest.mark.asyncio
+    async def test_distribute_session_no_nodes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            session = engine.create_session(name="cluster-test")
+            result = await engine.distribute_session(session.session_id, [], "migrate")
+            assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_distribute_session_nonexistent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            result = await engine.distribute_session("nope", ["node-a"], "migrate")
+            assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_cluster_status_local(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            session = engine.create_session(name="s")
+            result = await engine.cluster_status(session.session_id)
+            assert result["status"] == "completed"
+            assert result["cluster_state"] == "local"
+
+    @pytest.mark.asyncio
+    async def test_cluster_status_nonexistent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            result = await engine.cluster_status("nope")
+            assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_merge_cluster_results_no_nodes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            session = engine.create_session(name="s")
+            result = await engine.merge_cluster_results(session.session_id)
+            assert result["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_merge_cluster_results_with_tasks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            engine = SessionEngine(store=store)
+            session = engine.create_session(name="s")
+            with patch(
+                "fusion_code_modelization.cluster.scheduler.ClusterScheduler.dispatch_task",
+                new=AsyncMock(
+                    return_value=type("TD", (), {"to_dict": lambda self: {"task_id": "tk1", "target_node": "node-a"}})()
+                ),
+            ):
+                await engine.distribute_session(session.session_id, ["node-a"], "migrate")
+            fake_task = type(
+                "T",
+                (),
+                {
+                    "session_id": session.session_id,
+                    "target_node": "node-a",
+                    "status": type("S", (), {"value": "completed"})(),
+                    "result": {"content": "merged output"},
+                    "to_dict": lambda self: {"task_id": "tk1"},
+                },
+            )()
+            with patch(
+                "fusion_code_modelization.cluster.scheduler.ClusterScheduler.list_tasks",
+                return_value=[fake_task],
+            ):
+                result = await engine.merge_cluster_results(session.session_id)
+            assert result["status"] == "completed"
+            assert result["parts"] == 1
+            assert "node-a" in result["merged"]
+            loaded = engine.get_session(session.session_id)
+            assert loaded.state.value == "completed"

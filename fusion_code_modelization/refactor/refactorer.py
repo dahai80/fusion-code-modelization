@@ -62,9 +62,7 @@ class IncrementalRefactorer:
             }
         return {"status": "failed", "error": result.get("error", "Unknown")}
 
-    async def refactor_stream(
-        self, code: str, language: str, instructions: str = ""
-    ) -> AsyncIterator[dict[str, Any]]:
+    async def refactor_stream(self, code: str, language: str, instructions: str = "") -> AsyncIterator[dict[str, Any]]:
         prompt = f"Refactor the following {language} code. Improve code quality without changing business logic.\n"
         if instructions:
             prompt += f"Specific instructions: {instructions}\n"

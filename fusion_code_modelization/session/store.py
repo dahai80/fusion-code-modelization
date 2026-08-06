@@ -72,6 +72,7 @@ class SessionStore:
             max_tokens=config_data.get("max_tokens", 4096),
             security_mode=config_data.get("security_mode", "manual"),
             allowed_dirs=config_data.get("allowed_dirs", []),
+            cluster_nodes=config_data.get("cluster_nodes", []),
         )
         messages = [
             SessionMessage(
