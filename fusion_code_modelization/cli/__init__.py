@@ -11,7 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 
 logger = logging.getLogger("fusion_code_modelization")
 
