@@ -11,7 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -150,6 +150,12 @@ def main():
     # version
     sub.add_parser("version", help="Show version")
 
+    # serve
+    sv = sub.add_parser("serve", help="Start the REST API server")
+    sv.add_argument("--host", default="127.0.0.1", help="Bind host")
+    sv.add_argument("--port", type=int, default=11441, help="Bind port")
+    sv.add_argument("--mlx-url", default="http://localhost:11434/v1", help="fusion-mlx URL")
+
     # benchmark
     bm = sub.add_parser("benchmark", help="Run benchmark suites and compare reports")
     bm.add_argument("action", choices=["run", "list", "compare", "history"])
@@ -232,6 +238,7 @@ def main():
         "offline": lambda: _cmd_offline(args),
         "trace": lambda: _cmd_trace(args),
         "agent-comm": lambda: _cmd_agent_comm(args),
+        "serve": lambda: _cmd_serve(args),
     }
     try:
         dispatch[args.command]()
@@ -261,6 +268,13 @@ def _cmd_version():
     else:
         print(f"Fusion-Code-Modelization v{VERSION}")
         print("Base: fusion-mlx")
+
+
+def _cmd_serve(args):
+    from fusion_code_modelization.server import run_server
+
+    mlx_url = getattr(args, "mlx_url", None) or "http://localhost:11434/v1"
+    run_server(host=args.host, port=args.port, mlx_url=mlx_url)
 
 
 async def _cmd_analyze(args):
@@ -414,10 +428,10 @@ def _cmd_session(args):
     engine = SessionEngine()
     if args.action == "create":
         session = engine.create_session(name=args.name or "unnamed")
-        print(f"Created session: {session.id} ({session.name})")
+        print(f"Created session: {session.session_id} ({session.name})")
     elif args.action == "list":
         for s in engine.list_sessions():
-            print(f"  {s.id}  {s.name:20s}  {s.state.value}")
+            print(f"  {s.session_id}  {s.name:20s}  {s.state.value}")
     elif args.action == "start":
         engine.start(args.session_id)
         print(f"Started session {args.session_id}")

@@ -8,7 +8,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-704+-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-727+-success.svg)](tests/)
 
 [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Architecture](#architecture) · [Changelog](#changelog)
 
@@ -136,6 +136,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `trace <action> [--artifact-type] [--artifact-id]` | End-to-end traceability (create/link/forward/backward/report) |
 | `agent-comm <action> [--agents] [--collab-id]` | Agent cross-machine communication (create/submit/conflict/resolve/complete/list/status) |
 | `version` | Show version info |
+| `serve [--host] [--port] [--mlx-url]` | Start the REST API server (default `127.0.0.1:11441`) |
 | `--json` | Global flag: output results as JSON |
 | `--verbose` / `-v` | Global flag: enable debug logging |
 | `--quiet` / `-q` | Global flag: suppress non-error output |
@@ -151,6 +152,37 @@ fusion-code-modelization test-gen src.py --stream
 fusion-code-modelization security src.py --stream
 fusion-code-modelization doc-gen src.py --stream
 ```
+
+### REST API Server
+
+Issue #3 — a FastAPI server exposing sessions, workflows, and cluster operations over HTTP/WebSocket:
+
+```bash
+# Install server extras (fastapi + uvicorn)
+pip install -e ".[server]"
+
+# Start the server (default 127.0.0.1:11441)
+fusion-code-modelization serve --port 11441
+
+# Or via the module
+python -m fusion_code_modelization.server.runner
+```
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/health` | Health check |
+| `GET` / `POST` | `/api/sessions` | List / create sessions |
+| `GET` | `/api/sessions/{id}` | Get session snapshot |
+| `POST` | `/api/sessions/{id}/{action}` | start / pause / resume / complete / fail / delete / clone |
+| `POST` | `/api/sessions/{id}/chat` | Send a chat message |
+| `POST` | `/api/sessions/{id}/distribute` | Distribute session to cluster nodes (Issue #4) |
+| `GET` | `/api/sessions/{id}/cluster-status` | Query cluster distribution status |
+| `POST` | `/api/sessions/{id}/merge` | Merge completed cluster results |
+| `POST` | `/api/workflows/run` | Decompose + execute a workflow |
+| `GET` | `/api/workflows/{plan_id}` | Fetch a stored workflow result |
+| `WS` | `/ws/chat` | Streaming chat over WebSocket |
+
+Interactive API docs are auto-served at `/docs` (Swagger) and `/redoc`.
 
 ### Supported Languages
 
@@ -303,7 +335,7 @@ ruff format --check .
 ```
 
 ### Test Stats
-- **704+ tests**, 0 failures
+- **727+ tests**, 0 failures
 - **Integration tests** covering cross-module workflows
 - **Streaming tests** for all 5 LLM modules
 - **Python 3.12+** compatible
@@ -311,6 +343,12 @@ ruff format --check .
 ---
 
 ## Changelog
+
+### v0.6.1 — REST API + Multi-node Cluster Sessions
+- **Issue #3 — REST API server**: new `server/` module (FastAPI + uvicorn) exposing session CRUD/actions, chat (HTTP + WebSocket), workflow run/status, and cluster operations; `serve` CLI subcommand; `[server]` optional extra
+- **Issue #4 — Multi-node cluster sessions**: `CLUSTER_RUNNING` session state + transitions, `cluster_nodes` config field (persisted), `distribute_session()` / `cluster_status()` / `merge_cluster_results()` on `SessionEngine`
+- **Bugfix**: CLI `session` command used non-existent `session.id` (now `session.session_id`)
+- **727 tests passing**, coverage 83%, lint + format clean
 
 ### v0.6.0 — Runtime Maturity + Streaming UX
 - **Streaming LLM support**: `transpile_stream()`, `refactor_stream()`, `generate_unit_tests_stream()`, `scan_stream()`, `generate_docs_stream()` — real-time token output via SSE

@@ -13,20 +13,33 @@ class SessionState(enum.Enum):
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
     PAUSED = "paused"
+    CLUSTER_RUNNING = "cluster_running"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 _VALID_TRANSITIONS: dict[SessionState, set[SessionState]] = {
-    SessionState.IDLE: {SessionState.RUNNING},
+    SessionState.IDLE: {SessionState.RUNNING, SessionState.CLUSTER_RUNNING},
     SessionState.RUNNING: {
         SessionState.WAITING_APPROVAL,
+        SessionState.PAUSED,
+        SessionState.CLUSTER_RUNNING,
+        SessionState.COMPLETED,
+        SessionState.FAILED,
+    },
+    SessionState.CLUSTER_RUNNING: {
+        SessionState.RUNNING,
         SessionState.PAUSED,
         SessionState.COMPLETED,
         SessionState.FAILED,
     },
     SessionState.WAITING_APPROVAL: {SessionState.RUNNING, SessionState.PAUSED, SessionState.FAILED},
-    SessionState.PAUSED: {SessionState.RUNNING, SessionState.FAILED, SessionState.COMPLETED},
+    SessionState.PAUSED: {
+        SessionState.RUNNING,
+        SessionState.CLUSTER_RUNNING,
+        SessionState.FAILED,
+        SessionState.COMPLETED,
+    },
     SessionState.COMPLETED: set(),
     SessionState.FAILED: {SessionState.IDLE},
 }
@@ -42,6 +55,7 @@ class SessionConfig:
     max_tokens: int = 4096
     security_mode: str = "manual"
     allowed_dirs: list[str] = field(default_factory=list)
+    cluster_nodes: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -109,6 +123,7 @@ class Session:
                 "max_tokens": self.config.max_tokens,
                 "security_mode": self.config.security_mode,
                 "allowed_dirs": self.config.allowed_dirs,
+                "cluster_nodes": self.config.cluster_nodes,
             },
             "messages": [{"role": m.role, "content": m.content, "timestamp": m.timestamp} for m in self.messages],
             "created_at": self.created_at,

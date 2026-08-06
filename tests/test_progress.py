@@ -127,8 +127,10 @@ class TestCompositeProgressCallback:
 
     def test_exception_in_callback_does_not_stop_others(self):
         a = []
+
         def bad_cb(event):
             raise RuntimeError("oops")
+
         composite = CompositeProgressCallback(bad_cb, a.append)
         evt = ProgressEvent(event_type="error", operation="fail")
         composite(evt)

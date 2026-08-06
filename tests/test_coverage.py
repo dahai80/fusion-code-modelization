@@ -352,6 +352,7 @@ async def _fake_chat_stream(tokens):
     async def _gen(**__):
         for t in tokens:
             yield t
+
     return _gen
 
 
@@ -380,9 +381,11 @@ class TestTranspilerStream:
     @pytest.mark.asyncio
     async def test_transpile_stream_error(self):
         t = CodeTranspiler()
+
         async def _err(**__):
             raise RuntimeError("boom")
             yield
+
         with patch.object(t._client, "chat_stream", new=_err):
             chunks = []
             async for chunk in t.transpile_stream("code", "java", "python"):
@@ -405,9 +408,11 @@ class TestRefactorStream:
     @pytest.mark.asyncio
     async def test_refactor_stream_error(self):
         r = IncrementalRefactorer()
+
         async def _err(**__):
             raise RuntimeError("boom")
             yield
+
         with patch.object(r._client, "chat_stream", new=_err):
             chunks = []
             async for chunk in r.refactor_stream("code", "python"):
@@ -420,8 +425,11 @@ class TestUnitTestGeneratorStream:
     @pytest.mark.asyncio
     async def test_generate_unit_tests_stream_success(self):
         from fusion_code_modelization.test_gen.generator import UnitTestGenerator
+
         g = UnitTestGenerator()
-        with patch.object(g._client, "chat_stream", new=await _fake_chat_stream(["```python\n", "def test_x(): pass\n", "```"])):
+        with patch.object(
+            g._client, "chat_stream", new=await _fake_chat_stream(["```python\n", "def test_x(): pass\n", "```"])
+        ):
             chunks = []
             async for chunk in g.generate_unit_tests_stream("code", "python"):
                 chunks.append(chunk)
@@ -432,10 +440,13 @@ class TestUnitTestGeneratorStream:
     @pytest.mark.asyncio
     async def test_generate_unit_tests_stream_error(self):
         from fusion_code_modelization.test_gen.generator import UnitTestGenerator
+
         g = UnitTestGenerator()
+
         async def _err(**__):
             raise RuntimeError("boom")
             yield
+
         with patch.object(g._client, "chat_stream", new=_err):
             chunks = []
             async for chunk in g.generate_unit_tests_stream("code", "python"):
@@ -448,6 +459,7 @@ class TestSecurityScannerStream:
     @pytest.mark.asyncio
     async def test_scan_stream_static_only(self):
         from fusion_code_modelization.security.scanner import SecurityScanner
+
         s = SecurityScanner(static_only=True)
         code = 'password = "secret"'
         chunks = []
@@ -461,8 +473,13 @@ class TestSecurityScannerStream:
     @pytest.mark.asyncio
     async def test_scan_stream_with_llm(self):
         from fusion_code_modelization.security.scanner import SecurityScanner
+
         s = SecurityScanner(mlx_url="http://localhost:11434/v1", static_only=False)
-        with patch.object(s._client, "chat_stream", new=await _fake_chat_stream(['[{"type":"xss","severity":"high","line":1,"description":"XSS"}]'])):
+        with patch.object(
+            s._client,
+            "chat_stream",
+            new=await _fake_chat_stream(['[{"type":"xss","severity":"high","line":1,"description":"XSS"}]']),
+        ):
             chunks = []
             async for chunk in s.scan_stream("code", "javascript"):
                 chunks.append(chunk)
@@ -475,6 +492,7 @@ class TestDocGenStream:
     @pytest.mark.asyncio
     async def test_generate_docs_stream_success(self):
         from fusion_code_modelization.doc_gen import DocumentationGenerator
+
         g = DocumentationGenerator(mlx_url="http://localhost:11434/v1")
         with patch.object(g._client, "chat_stream", new=await _fake_chat_stream(["# Module Docs\n", "Some text\n"])):
             chunks = []
@@ -486,10 +504,13 @@ class TestDocGenStream:
     @pytest.mark.asyncio
     async def test_generate_docs_stream_error(self):
         from fusion_code_modelization.doc_gen import DocumentationGenerator
+
         g = DocumentationGenerator(mlx_url="http://localhost:11434/v1")
+
         async def _err(**__):
             raise RuntimeError("boom")
             yield
+
         with patch.object(g._client, "chat_stream", new=_err):
             chunks = []
             async for chunk in g.generate_docs_stream("code", "python"):
