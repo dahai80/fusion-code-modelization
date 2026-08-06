@@ -344,6 +344,10 @@ ruff format --check .
 
 ## Changelog
 
+### v0.6.2 — Project Naming Alignment
+- **Issue #6**: aligned `pyproject.toml` `[project] name` to `fusion-code-modelization`, matching the GitHub repo, the CLI entry point, and the importable package (`fusion_code_modelization/`); removed the stale `fusion-code-modernization` dist registration
+- 727 tests passing, lint + format clean
+
 ### v0.6.1 — REST API + Multi-node Cluster Sessions
 - **Issue #3 — REST API server**: new `server/` module (FastAPI + uvicorn) exposing session CRUD/actions, chat (HTTP + WebSocket), workflow run/status, and cluster operations; `serve` CLI subcommand; `[server]` optional extra
 - **Issue #4 — Multi-node cluster sessions**: `CLUSTER_RUNNING` session state + transitions, `cluster_nodes` config field (persisted), `distribute_session()` / `cluster_status()` / `merge_cluster_results()` on `SessionEngine`
