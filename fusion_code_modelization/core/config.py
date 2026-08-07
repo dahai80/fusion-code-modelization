@@ -1,10 +1,34 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_LOCAL_MODEL = "Qwen3.5-9B-4bit"
+FUSION_MLX_SETTINGS_PATH = Path(
+    os.environ.get("FUSION_MLX_SETTINGS", str(Path.home() / ".fusion-mlx" / "settings.json"))
+)
+
+
+def _resolve_api_key() -> str:
+    for env_name in ("FUSION_MLX_API_KEY", "MLX_API_KEY", "OPENAI_API_KEY"):
+        key = os.environ.get(env_name, "")
+        if key:
+            return key
+    try:
+        if FUSION_MLX_SETTINGS_PATH.exists():
+            data = json.loads(FUSION_MLX_SETTINGS_PATH.read_text())
+            key = data.get("auth", {}).get("api_key", "")
+            if key:
+                return key
+    except Exception as e:
+        logger.warning("failed to read fusion-mlx settings: %s", e)
+    return ""
 
 
 class ModelStack(StrEnum):
@@ -21,13 +45,14 @@ class RoutingStrategy(StrEnum):
 
 @dataclass
 class ModelConfig:
-    model: str = "qwen3.5-9b"
+    model: str = DEFAULT_LOCAL_MODEL
     temperature: float = 0.1
     max_tokens: int = 4096
     timeout: float = 120.0
     base_url: str = "http://localhost:11434/v1"
     retry_attempts: int = 2
     retry_delay: float = 1.0
+    api_key: str = field(default_factory=_resolve_api_key)
 
     def to_chat_params(self) -> dict:
         return {
@@ -35,6 +60,11 @@ class ModelConfig:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
+
+    def auth_headers(self) -> dict[str, str]:
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
 
 
 @dataclass
@@ -59,10 +89,10 @@ class DualModelConfig:
 
 MODEL_PRESETS: dict[str, ModelConfig] = {
     "default": ModelConfig(),
-    "code": ModelConfig(model="qwen3.5-9b", temperature=0.1, max_tokens=4096),
-    "analysis": ModelConfig(model="qwen3.5-9b", temperature=0.0, max_tokens=2048),
-    "creative": ModelConfig(model="qwen3.5-9b", temperature=0.3, max_tokens=4096),
-    "fast": ModelConfig(model="qwen3.5-9b", temperature=0.1, max_tokens=1024, timeout=60.0),
+    "code": ModelConfig(model=DEFAULT_LOCAL_MODEL, temperature=0.1, max_tokens=4096),
+    "analysis": ModelConfig(model=DEFAULT_LOCAL_MODEL, temperature=0.0, max_tokens=2048),
+    "creative": ModelConfig(model=DEFAULT_LOCAL_MODEL, temperature=0.3, max_tokens=4096),
+    "fast": ModelConfig(model=DEFAULT_LOCAL_MODEL, temperature=0.1, max_tokens=1024, timeout=60.0),
 }
 
 
@@ -132,7 +162,7 @@ class OfflineMode(StrEnum):
 @dataclass
 class OfflineConfig:
     mode: OfflineMode = OfflineMode.ONLINE
-    local_model_ids: list[str] = field(default_factory=lambda: ["qwen3.5-9b"])
+    local_model_ids: list[str] = field(default_factory=lambda: [DEFAULT_LOCAL_MODEL])
     cloud_fallback_enabled: bool = True
     cache_dir: str = ".fusion/offline_cache"
     max_cache_size_mb: float = 5000.0
@@ -154,7 +184,7 @@ class OfflineConfig:
     def from_dict(cls, data: dict) -> OfflineConfig:
         return cls(
             mode=OfflineMode(data.get("mode", "online")),
-            local_model_ids=data.get("local_model_ids", ["qwen3.5-9b"]),
+            local_model_ids=data.get("local_model_ids", [DEFAULT_LOCAL_MODEL]),
             cloud_fallback_enabled=data.get("cloud_fallback_enabled", True),
             cache_dir=data.get("cache_dir", ".fusion/offline_cache"),
             max_cache_size_mb=data.get("max_cache_size_mb", 5000.0),
