@@ -57,6 +57,21 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 - Python 3.12+
 - [fusion-mlx](https://github.com/dahai80/fusion-mlx) running on `localhost:11434`
 
+### Authentication & Model ID
+
+`MLXClient` authenticates to fusion-mlx with a bearer token. The API key is resolved in priority order (first non-empty wins):
+
+1. `FUSION_MLX_API_KEY` environment variable
+2. `MLX_API_KEY` environment variable
+3. `OPENAI_API_KEY` environment variable
+4. `auth.api_key` in `~/.fusion-mlx/settings.json`
+
+The default local model id is `Qwen3.5-9B-4bit` (must match a model loaded by fusion-mlx — check `~/claude-home/fusion-mlx/start.sh status`). Override per call with `MLXClient(...).chat(model=...)` or by constructing a custom `ModelConfig`.
+
+```bash
+export FUSION_MLX_API_KEY="<your-key>"   # optional; falls back to fusion-mlx settings
+```
+
 ### Install
 
 ```bash
@@ -343,6 +358,13 @@ ruff format --check .
 ---
 
 ## Changelog
+
+### v0.6.3 — Production Integration Fixes (auth + model id)
+- **Auth header**: `MLXClient.chat()` / `chat_stream()` now send `Authorization: Bearer <api_key>` to fusion-mlx — previously sent no auth header and would be rejected with 401 on secured instances
+- **Model id alignment**: default `ModelConfig.model` corrected from `qwen3.5-9b` to `Qwen3.5-9B-4bit` (the actually-loaded model id); `MODEL_PRESETS`, `SessionConfig`, `SessionEngine.create_session`, `NodeClient`, and `OfflineConfig` defaults updated consistently via a shared `DEFAULT_LOCAL_MODEL` constant
+- **API key resolution**: new `_resolve_api_key()` resolves from `FUSION_MLX_API_KEY` / `MLX_API_KEY` / `OPENAI_API_KEY` env vars, falling back to `auth.api_key` in `~/.fusion-mlx/settings.json`; no secrets hardcoded in source
+- **Real-model acceptance verified**: chat, chat_stream, transpile, refactor, test-gen, security scan (static+llm), doc-gen, session chat, PR/report/decomposer generation, cluster dispatch, REST server, and CLI all confirmed end-to-end against a running fusion-mlx
+- 727 tests passing, coverage 83%, lint + format clean
 
 ### v0.6.2 — Project Naming Alignment
 - **Issue #6**: aligned `pyproject.toml` `[project] name` to `fusion-code-modelization`, matching the GitHub repo, the CLI entry point, and the importable package (`fusion_code_modelization/`); removed the stale `fusion-code-modernization` dist registration

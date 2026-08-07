@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.config import DEFAULT_LOCAL_MODEL
 from .state import Session, SessionConfig, SessionMessage, SessionState
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class SessionStore:
             session_id=data.get("session_id", ""),
             name=data.get("name", ""),
             working_dir=config_data.get("working_dir", ""),
-            model=config_data.get("model", "qwen3.5-9b"),
+            model=config_data.get("model", DEFAULT_LOCAL_MODEL),
             temperature=config_data.get("temperature", 0.1),
             max_tokens=config_data.get("max_tokens", 4096),
             security_mode=config_data.get("security_mode", "manual"),

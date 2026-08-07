@@ -8,7 +8,7 @@ import pytest
 
 from fusion_code_modelization.analyzer.dependency import DependencyAnalyzer, DependencyGraph
 from fusion_code_modelization.core.client import MLXClient
-from fusion_code_modelization.core.config import MODEL_PRESETS, ModelConfig, get_model_config
+from fusion_code_modelization.core.config import DEFAULT_LOCAL_MODEL, MODEL_PRESETS, ModelConfig, get_model_config
 from fusion_code_modelization.migration.transpiler import CodeTranspiler
 from fusion_code_modelization.refactor.refactorer import IncrementalRefactorer
 from fusion_code_modelization.security.scanner import SecurityScanner
@@ -20,7 +20,7 @@ from fusion_code_modelization.test_gen.generator import UnitTestGenerator
 class TestModelConfig:
     def test_default_config(self):
         config = ModelConfig()
-        assert config.model == "qwen3.5-9b"
+        assert config.model == DEFAULT_LOCAL_MODEL
         assert config.temperature == 0.1
         assert config.max_tokens == 4096
 
@@ -36,12 +36,12 @@ class TestModelConfig:
         assert "code" in MODEL_PRESETS
         assert "analysis" in MODEL_PRESETS
         code_config = get_model_config("code")
-        assert code_config.model == "qwen3.5-9b"
+        assert code_config.model == DEFAULT_LOCAL_MODEL
         assert code_config.temperature == 0.1
 
     def test_get_model_config_unknown(self):
         config = get_model_config("nonexistent")
-        assert config.model == "qwen3.5-9b"
+        assert config.model == DEFAULT_LOCAL_MODEL
 
 
 class TestMLXClient:

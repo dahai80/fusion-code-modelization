@@ -40,6 +40,7 @@ class MLXClient:
         params["messages"] = messages
 
         request_timeout = timeout or self.config.timeout
+        headers = self.config.auth_headers()
         last_error = None
 
         for attempt in range(self.config.retry_attempts):
@@ -48,6 +49,7 @@ class MLXClient:
                     resp = await client.post(
                         f"{self._base_url}/chat/completions",
                         json=params,
+                        headers=headers,
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -89,12 +91,14 @@ class MLXClient:
         params["messages"] = messages
         params["stream"] = True
 
+        headers = self.config.auth_headers()
         async with (
             httpx.AsyncClient(timeout=self.config.timeout) as client,
             client.stream(
                 "POST",
                 f"{self._base_url}/chat/completions",
                 json=params,
+                headers=headers,
             ) as resp,
         ):
             resp.raise_for_status()

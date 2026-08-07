@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from ..core.config import DEFAULT_LOCAL_MODEL
 from .models import NodeInfo, NodeStatus
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class NodeClient:
     ) -> dict[str, Any]:
         url = f"http://{node.host}:{node.port}/v1/chat/completions"
         payload = {
-            "model": "qwen3.5-9b",
+            "model": DEFAULT_LOCAL_MODEL,
             "messages": [{"role": "user", "content": description}],
             **(params or {}),
         }

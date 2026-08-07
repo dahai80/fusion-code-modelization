@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
-from fusion_code_modelization.core.config import ModelConfig
+from fusion_code_modelization.core.config import DEFAULT_LOCAL_MODEL, ModelConfig
 from fusion_code_modelization.core.progress import emit_complete, emit_error, emit_start
 
 from .state import Session, SessionConfig, SessionState
@@ -24,7 +24,7 @@ class SessionEngine:
         self,
         name: str = "",
         working_dir: str = "",
-        model: str = "qwen3.5-9b",
+        model: str = DEFAULT_LOCAL_MODEL,
         temperature: float = 0.1,
         max_tokens: int = 4096,
         security_mode: str = "manual",

@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..core.config import DEFAULT_LOCAL_MODEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,7 +52,7 @@ class SessionConfig:
     session_id: str = ""
     name: str = ""
     working_dir: str = ""
-    model: str = "qwen3.5-9b"
+    model: str = DEFAULT_LOCAL_MODEL
     temperature: float = 0.1
     max_tokens: int = 4096
     security_mode: str = "manual"

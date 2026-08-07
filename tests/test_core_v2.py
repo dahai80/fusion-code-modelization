@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from fusion_code_modelization.core import (
+    DEFAULT_LOCAL_MODEL,
     DualModelConfig,
     DualStackClient,
     ModelConfig,
@@ -36,13 +37,13 @@ class TestDualModelConfig:
         assert cfg.routing_strategy == RoutingStrategy.LOCAL_FIRST
         assert cfg.complexity_threshold == 0.7
         assert cfg.fallback_enabled is True
-        assert cfg.local_config.model == "qwen3.5-9b"
+        assert cfg.local_config.model == DEFAULT_LOCAL_MODEL
         assert cfg.cloud_config.model == "claude-sonnet-5"
 
     def test_get_config_local(self):
         cfg = DualModelConfig()
         c = cfg.get_config(ModelStack.LOCAL)
-        assert c.model == "qwen3.5-9b"
+        assert c.model == DEFAULT_LOCAL_MODEL
 
     def test_get_config_cloud(self):
         cfg = DualModelConfig()
@@ -102,7 +103,7 @@ class TestModelRouter:
         cfg = DualModelConfig(routing_strategy=RoutingStrategy.LOCAL_FIRST)
         router = ModelRouter(cfg)
         config = router.get_config_for_prompt("hello")
-        assert config.model == "qwen3.5-9b"
+        assert config.model == DEFAULT_LOCAL_MODEL
 
 
 class TestDualStackClient:
@@ -125,7 +126,7 @@ class TestDualStackClient:
     def test_get_client_local(self):
         client = DualStackClient()
         c = client._get_client("local")
-        assert c.config.model == "qwen3.5-9b"
+        assert c.config.model == DEFAULT_LOCAL_MODEL
 
     def test_get_client_cloud(self):
         client = DualStackClient()

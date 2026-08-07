@@ -2,6 +2,7 @@
 
 from .client import DualStackClient, MLXClient
 from .config import (
+    DEFAULT_LOCAL_MODEL,
     DualModelConfig,
     ModelConfig,
     ModelRouter,
@@ -25,6 +26,7 @@ from .progress import (
 __all__ = [
     "MLXClient",
     "DualStackClient",
+    "DEFAULT_LOCAL_MODEL",
     "ModelConfig",
     "DualModelConfig",
     "ModelRouter",
