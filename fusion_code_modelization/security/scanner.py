@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from fusion_code_modelization.core.client import MLXClient
-from fusion_code_modelization.core.config import ModelConfig
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SecurityScanner:
     def __init__(
         self,
-        mlx_url: str = "http://localhost:11434/v1",
+        mlx_url: str = DEFAULT_GATEWAY_URL,
         client: MLXClient | None = None,
         fusion_security_url: str | None = None,
         static_only: bool | None = None,

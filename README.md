@@ -55,21 +55,22 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 - macOS with Apple Silicon (M1–M5)
 - Python 3.12+
-- [fusion-mlx](https://github.com/dahai80/fusion-mlx) running on `localhost:11434`
+- [fusion-gateway](https://github.com/dahai80/fusion-gateway) running on `localhost:11432` (the unified inference gateway), with [fusion-mlx](https://github.com/dahai80/fusion-mlx) as its upstream on `localhost:11434`
 
 ### Authentication & Model ID
 
-`MLXClient` authenticates to fusion-mlx with a bearer token. The API key is resolved in priority order (first non-empty wins):
+All inference is routed through **fusion-gateway** (`localhost:11432/v1`); this package never connects to fusion-mlx (`localhost:11434`) directly. `MLXClient` authenticates to the gateway with a bearer token. The API key is resolved in priority order (first non-empty wins):
 
-1. `FUSION_MLX_API_KEY` environment variable
+1. `FUSION_MLX_API_KEY` environment variable — the **gateway client key** (e.g. `fg-admin-key`)
 2. `MLX_API_KEY` environment variable
 3. `OPENAI_API_KEY` environment variable
-4. `auth.api_key` in `~/.fusion-mlx/settings.json`
 
-The default local model id is `Qwen3.5-9B-4bit` (must match a model loaded by fusion-mlx — check `~/claude-home/fusion-mlx/start.sh status`). Override per call with `MLXClient(...).chat(model=...)` or by constructing a custom `ModelConfig`.
+> ⚠️ The key must be a gateway client key registered in fusion-gateway's `config.yaml` (`auth.api_keys`), **not** the fusion-mlx upstream key. If none is set, requests run unauthenticated and the gateway will reject them.
+
+The default local model id is `Qwen3.5-9B-4bit` (must match a model loaded by the gateway's fusion-mlx upstream — check `~/claude-home/fusion-mlx/start.sh status`). Override per call with `MLXClient(...).chat(model=...)` or by constructing a custom `ModelConfig`.
 
 ```bash
-export FUSION_MLX_API_KEY="<your-key>"   # optional; falls back to fusion-mlx settings
+export FUSION_MLX_API_KEY="<gateway-client-key>"   # e.g. fg-admin-key
 ```
 
 ### Install
@@ -358,6 +359,14 @@ ruff format --check .
 ---
 
 ## Changelog
+
+### v0.6.4 — Gateway Routing (no direct fusion-mlx)
+- **Mandatory gateway routing**: all inference now goes through **fusion-gateway** on `localhost:11432/v1`; the package no longer connects to fusion-mlx (`localhost:11434`) directly
+- **New defaults**: `ModelConfig.base_url` → `http://localhost:11432/v1` (`DEFAULT_GATEWAY_URL`); cluster node port + offline health-check → `11432` (`GATEWAY_PORT`); CLI `--mlx-url` and `serve`/`cluster` defaults aligned
+- **Env-only key resolution**: `_resolve_api_key()` now resolves `FUSION_MLX_API_KEY` / `MLX_API_KEY` / `OPENAI_API_KEY` from env only (removed `~/.fusion-mlx/settings.json` fallback); the key must be a **gateway client key** (e.g. `fg-admin-key`), not the fusion-mlx upstream key
+- **Touched 16 source files** (core + 14 feature modules + cli + server + offline + cluster) so every `mlx_url` default points at the gateway; `NodeClient` sends auth headers
+- **Real-model acceptance verified through gateway**: chat, chat_stream, transpile, refactor, test-gen, security scan, doc-gen — every HTTP call to `localhost:11432/v1`, none to 11434
+- 727 tests passing, lint + format clean
 
 ### v0.6.3 — Production Integration Fixes (auth + model id)
 - **Auth header**: `MLXClient.chat()` / `chat_stream()` now send `Authorization: Bearer <api_key>` to fusion-mlx — previously sent no auth header and would be rejected with 401 on secured instances

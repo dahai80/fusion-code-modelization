@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from ..core.config import DEFAULT_LOCAL_MODEL
+from ..core.config import DEFAULT_LOCAL_MODEL, _resolve_api_key
 from .models import NodeInfo, NodeStatus
 
 logger = logging.getLogger(__name__)
@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 class NodeClient:
     def __init__(self, default_timeout: float = 10.0):
         self.default_timeout = default_timeout
+        api_key = _resolve_api_key()
+        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def health_check(self, node: NodeInfo) -> bool:
         url = f"http://{node.host}:{node.port}/v1/models"
         try:
             async with httpx.AsyncClient(timeout=self.default_timeout) as client:
-                resp = await client.get(url)
+                resp = await client.get(url, headers=self._headers)
                 if resp.status_code == 200:
                     node.status = NodeStatus.ONLINE
                     return True
@@ -39,7 +41,7 @@ class NodeClient:
         }
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(url, json=payload)
+                resp = await client.post(url, json=payload, headers=self._headers)
                 resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]

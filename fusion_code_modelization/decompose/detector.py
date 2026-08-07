@@ -8,6 +8,7 @@ from collections import defaultdict
 
 # GateGuard: Importers: decompose/__init__.py. Affected API: detect_boundaries_llm gains progress_callback kwarg. Data schemas: none. User instruction: Phase 6 — wire progress callbacks into long-running LLM methods.
 from ..core.client import MLXClient
+from ..core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from ..core.progress import emit_complete, emit_error, emit_progress, emit_start
 from .models import BoundarySuggestion, CouplingEdge
 
@@ -42,9 +43,7 @@ Return format:
 
 
 class BoundaryDetector:
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
-        from ..core.config import ModelConfig
-
+    def __init__(self, mlx_url: str = DEFAULT_GATEWAY_URL, client: MLXClient | None = None):
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
 
     def compute_coupling(self, graph: dict) -> list[CouplingEdge]:

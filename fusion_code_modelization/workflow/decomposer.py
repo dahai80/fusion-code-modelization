@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.client import MLXClient
+from ..core.config import DEFAULT_GATEWAY_URL, ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +82,7 @@ Return format:
 
 
 class TaskDecomposer:
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
-        from ..core.config import ModelConfig
-
+    def __init__(self, mlx_url: str = DEFAULT_GATEWAY_URL, client: MLXClient | None = None):
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
 
     async def decompose(

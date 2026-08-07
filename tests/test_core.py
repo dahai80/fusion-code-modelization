@@ -8,7 +8,13 @@ import pytest
 
 from fusion_code_modelization.analyzer.dependency import DependencyAnalyzer, DependencyGraph
 from fusion_code_modelization.core.client import MLXClient
-from fusion_code_modelization.core.config import DEFAULT_LOCAL_MODEL, MODEL_PRESETS, ModelConfig, get_model_config
+from fusion_code_modelization.core.config import (
+    DEFAULT_GATEWAY_URL,
+    DEFAULT_LOCAL_MODEL,
+    MODEL_PRESETS,
+    ModelConfig,
+    get_model_config,
+)
 from fusion_code_modelization.migration.transpiler import CodeTranspiler
 from fusion_code_modelization.refactor.refactorer import IncrementalRefactorer
 from fusion_code_modelization.security.scanner import SecurityScanner
@@ -47,7 +53,7 @@ class TestModelConfig:
 class TestMLXClient:
     def test_init_default(self):
         client = MLXClient()
-        assert client.config.base_url == "http://localhost:11434/v1"
+        assert client.config.base_url == DEFAULT_GATEWAY_URL
 
     def test_init_with_config(self):
         config = ModelConfig(base_url="http://custom:9999/v1")

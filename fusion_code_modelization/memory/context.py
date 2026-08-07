@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from ..core.client import MLXClient
+from ..core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from .tier import MemoryEntry, MemoryTier, MemoryTierManager
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,9 @@ class MemoryContext:
     def __init__(
         self,
         project_dir: str | Path | None = None,
-        mlx_url: str = "http://localhost:11434/v1",
+        mlx_url: str = DEFAULT_GATEWAY_URL,
         client: MLXClient | None = None,
     ):
-        from ..core.config import ModelConfig
-
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
         self._manager = MemoryTierManager(project_dir=project_dir)
 

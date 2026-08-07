@@ -11,7 +11,9 @@ import logging
 import sys
 from pathlib import Path
 
-VERSION = "0.6.3"
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, GATEWAY_PORT
+
+VERSION = "0.6.4"
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -26,7 +28,7 @@ _global_flags = _GlobalFlags()
 
 def main():
     parser = argparse.ArgumentParser(description="Fusion-Code-Modelization — Legacy code modernization")
-    parser.add_argument("--mlx-url", default="http://localhost:11434/v1", help="fusion-mlx URL")
+    parser.add_argument("--mlx-url", default=DEFAULT_GATEWAY_URL, help="fusion-gateway URL")
     parser.add_argument("--json", dest="json_output", action="store_true", help="Output results as JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress non-error output")
@@ -131,7 +133,7 @@ def main():
     cl.add_argument("action", choices=["discover", "dispatch", "status", "schedule", "migrate", "register", "tasks"])
     cl.add_argument("--node-id", default="", help="Target node ID")
     cl.add_argument("--host", default="localhost", help="Node host")
-    cl.add_argument("--port", type=int, default=11434, help="Node port")
+    cl.add_argument("--port", type=int, default=GATEWAY_PORT, help="Node port")
     cl.add_argument("--session-id", default="", help="Session ID to dispatch")
     cl.add_argument("--from-node", default="", help="Source node for migration")
     cl.add_argument("--to-node", default="", help="Target node for migration")
@@ -154,7 +156,7 @@ def main():
     sv = sub.add_parser("serve", help="Start the REST API server")
     sv.add_argument("--host", default="127.0.0.1", help="Bind host")
     sv.add_argument("--port", type=int, default=11441, help="Bind port")
-    sv.add_argument("--mlx-url", default="http://localhost:11434/v1", help="fusion-mlx URL")
+    sv.add_argument("--mlx-url", default=DEFAULT_GATEWAY_URL, help="fusion-gateway URL")
 
     # benchmark
     bm = sub.add_parser("benchmark", help="Run benchmark suites and compare reports")
@@ -273,7 +275,7 @@ def _cmd_version():
 def _cmd_serve(args):
     from fusion_code_modelization.server import run_server
 
-    mlx_url = getattr(args, "mlx_url", None) or "http://localhost:11434/v1"
+    mlx_url = getattr(args, "mlx_url", None) or DEFAULT_GATEWAY_URL
     run_server(host=args.host, port=args.port, mlx_url=mlx_url)
 
 
