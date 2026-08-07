@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL
 from fusion_code_modelization.session import SessionEngine, SessionStore
 from fusion_code_modelization.workflow import WorkflowExecutor
 
@@ -36,9 +37,9 @@ class WorkflowRunRequest(BaseModel):
 
 
 def create_app(mlx_url: str | None = None, base_dir: str | None = None) -> FastAPI:
-    app = FastAPI(title="Fusion-Code-Modelization REST API", version="0.6.3")
+    app = FastAPI(title="Fusion-Code-Modelization REST API", version="0.6.4")
     engine = SessionEngine(store=SessionStore(base_dir=base_dir) if base_dir else SessionStore())
-    executor = WorkflowExecutor(mlx_url=mlx_url or "http://localhost:11434/v1")
+    executor = WorkflowExecutor(mlx_url=mlx_url or DEFAULT_GATEWAY_URL)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

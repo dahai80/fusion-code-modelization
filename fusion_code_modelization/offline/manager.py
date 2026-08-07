@@ -8,6 +8,7 @@ import logging
 import socket
 from pathlib import Path
 
+from ..core.config import GATEWAY_PORT
 from .cache import OfflineCache
 from .models import CAPABILITY_MATRIX, OfflineMode, OfflinePackage
 
@@ -33,7 +34,7 @@ class OfflineManager:
             else:
                 self._current_mode = OfflineMode.SEMI_OFFLINE
         except OSError:
-            has_local = self._check_local_mlx()
+            has_local = self._check_gateway()
             if has_local:
                 self._current_mode = OfflineMode.SEMI_OFFLINE
             else:
@@ -48,9 +49,9 @@ class OfflineManager:
         except OSError:
             return False
 
-    def _check_local_mlx(self) -> bool:
+    def _check_gateway(self) -> bool:
         try:
-            sock = socket.create_connection(("localhost", 11434), timeout=2)
+            sock = socket.create_connection(("localhost", GATEWAY_PORT), timeout=2)
             sock.close()
             return True
         except OSError:

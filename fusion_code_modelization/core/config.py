@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOCAL_MODEL = "Qwen3.5-9B-4bit"
-FUSION_MLX_SETTINGS_PATH = Path(
-    os.environ.get("FUSION_MLX_SETTINGS", str(Path.home() / ".fusion-mlx" / "settings.json"))
-)
+DEFAULT_GATEWAY_URL = "http://localhost:11432/v1"
+GATEWAY_PORT = 11432
 
 
 def _resolve_api_key() -> str:
@@ -20,14 +17,10 @@ def _resolve_api_key() -> str:
         key = os.environ.get(env_name, "")
         if key:
             return key
-    try:
-        if FUSION_MLX_SETTINGS_PATH.exists():
-            data = json.loads(FUSION_MLX_SETTINGS_PATH.read_text())
-            key = data.get("auth", {}).get("api_key", "")
-            if key:
-                return key
-    except Exception as e:
-        logger.warning("failed to read fusion-mlx settings: %s", e)
+    logger.warning(
+        "No API key found in FUSION_MLX_API_KEY/MLX_API_KEY/OPENAI_API_KEY; "
+        "set FUSION_MLX_API_KEY to the fusion-gateway client key"
+    )
     return ""
 
 
@@ -49,7 +42,7 @@ class ModelConfig:
     temperature: float = 0.1
     max_tokens: int = 4096
     timeout: float = 120.0
-    base_url: str = "http://localhost:11434/v1"
+    base_url: str = DEFAULT_GATEWAY_URL
     retry_attempts: int = 2
     retry_delay: float = 1.0
     api_key: str = field(default_factory=_resolve_api_key)

@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from ..core.client import MLXClient
+from ..core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from .models import DocSection
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,7 @@ Return the API documentation:"""
 
 
 class DocumentationGenerator:
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
-        from ..core.config import ModelConfig
-
+    def __init__(self, mlx_url: str = DEFAULT_GATEWAY_URL, client: MLXClient | None = None):
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
 
     async def generate_docs(self, code: str, language: str, doc_type: str = "module") -> dict[str, Any]:

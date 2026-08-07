@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
-from fusion_code_modelization.core.config import ModelConfig
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class DependencyGraph:
 
 
 class DependencyAnalyzer:
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
+    def __init__(self, mlx_url: str = DEFAULT_GATEWAY_URL, client: MLXClient | None = None):
         if client is not None:
             self._client = client
         else:

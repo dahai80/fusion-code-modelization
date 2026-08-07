@@ -2,6 +2,7 @@
 
 from .client import DualStackClient, MLXClient
 from .config import (
+    DEFAULT_GATEWAY_URL,
     DEFAULT_LOCAL_MODEL,
     DualModelConfig,
     ModelConfig,
@@ -27,6 +28,7 @@ __all__ = [
     "MLXClient",
     "DualStackClient",
     "DEFAULT_LOCAL_MODEL",
+    "DEFAULT_GATEWAY_URL",
     "ModelConfig",
     "DualModelConfig",
     "ModelRouter",

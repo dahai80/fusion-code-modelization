@@ -6,6 +6,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from ..core.config import GATEWAY_PORT
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +30,7 @@ class TaskDispatchStatus(StrEnum):
 class NodeInfo:
     node_id: str
     host: str = "localhost"
-    port: int = 11434
+    port: int = GATEWAY_PORT
     status: NodeStatus = NodeStatus.ONLINE
     cpu_percent: float = 0.0
     memory_percent: float = 0.0
@@ -60,7 +62,7 @@ class NodeInfo:
         return cls(
             node_id=data.get("node_id", ""),
             host=data.get("host", "localhost"),
-            port=data.get("port", 11434),
+            port=data.get("port", GATEWAY_PORT),
             status=NodeStatus(data.get("status", "offline")),
             cpu_percent=data.get("cpu_percent", 0.0),
             memory_percent=data.get("memory_percent", 0.0),

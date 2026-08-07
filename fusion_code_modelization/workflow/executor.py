@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core.client import MLXClient
+from ..core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from ..core.progress import emit_complete, emit_error, emit_progress, emit_start
 from .decomposer import SubTask, WorkflowPlan
 
@@ -77,9 +78,7 @@ Output the merged result:"""
 
 
 class WorkflowExecutor:
-    def __init__(self, mlx_url: str = "http://localhost:11434/v1", client: MLXClient | None = None):
-        from ..core.config import ModelConfig
-
+    def __init__(self, mlx_url: str = DEFAULT_GATEWAY_URL, client: MLXClient | None = None):
         self._client = client or MLXClient(config=ModelConfig(base_url=mlx_url))
         self._results: dict[str, SubTaskResult] = {}
 

@@ -37,7 +37,7 @@ class TestNodeInfo:
     def test_defaults(self):
         n = NodeInfo(node_id="n1")
         assert n.host == "localhost"
-        assert n.port == 11434
+        assert n.port == 11432
         assert n.status == NodeStatus.ONLINE
         assert n.last_heartbeat != ""
 
