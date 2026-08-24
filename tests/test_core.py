@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -90,6 +90,69 @@ class TestMLXClient:
         content = "```java\npublic class Foo {}\n```"
         code = MLXClient.extract_code(content, "java")
         assert "public class" in code
+
+    @pytest.mark.asyncio
+    async def test_chat_empty_content_guard_dh3(self):
+        client = MLXClient()
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": ""}}]}
+
+        mock_http = MagicMock()
+        mock_http.is_closed = False
+        mock_http.post = AsyncMock(return_value=MockResponse())
+        client._client = mock_http
+        result = await client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert result["status"] == "failed"
+        assert result["error"] == "empty_content"
+
+    @pytest.mark.asyncio
+    async def test_chat_whitespace_content_guard_dh3(self):
+        client = MLXClient()
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "   \n  "}}]}
+
+        mock_http = MagicMock()
+        mock_http.is_closed = False
+        mock_http.post = AsyncMock(return_value=MockResponse())
+        client._client = mock_http
+        result = await client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert result["status"] == "failed"
+        assert result["error"] == "empty_content"
+
+    @pytest.mark.asyncio
+    async def test_chat_real_content_passes_dh3(self):
+        client = MLXClient()
+
+        class MockResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "valid code"}}]}
+
+        mock_http = MagicMock()
+        mock_http.is_closed = False
+        mock_http.post = AsyncMock(return_value=MockResponse())
+        client._client = mock_http
+        result = await client.chat(messages=[{"role": "user", "content": "hi"}])
+        assert result["status"] == "completed"
+        assert result["content"] == "valid code"
 
 
 # ── DependencyAnalyzer ──

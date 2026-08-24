@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from fusion_core.http_client import get_async_client, with_retry
+
 from .config import ModelConfig
 
 if TYPE_CHECKING:
@@ -20,6 +22,18 @@ class MLXClient:
     def __init__(self, config: ModelConfig | None = None):
         self.config = config or ModelConfig()
         self._base_url = self.config.base_url.rstrip("/")
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = get_async_client(self._base_url, timeout=self.config.timeout)
+            logger.debug("Pooled httpx.AsyncClient via fusion_core, base=%s", self._base_url)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            logger.debug("Releasing reference to pooled httpx.AsyncClient (pool-managed, not closed)")
+        self._client = None
 
     async def chat(
         self,
@@ -41,37 +55,35 @@ class MLXClient:
 
         request_timeout = timeout or self.config.timeout
         headers = self.config.auth_headers()
-        last_error = None
 
-        for attempt in range(self.config.retry_attempts):
-            try:
-                async with httpx.AsyncClient(timeout=request_timeout) as client:
-                    resp = await client.post(
-                        f"{self._base_url}/chat/completions",
-                        json=params,
-                        headers=headers,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                    logger.debug(
-                        "chat completed: model=%s tokens=%d",
-                        params["model"],
-                        len(content),
-                    )
-                    return {"status": "completed", "content": content}
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "chat attempt %d/%d failed: %s",
-                    attempt + 1,
-                    self.config.retry_attempts,
-                    e,
-                )
-                if attempt < self.config.retry_attempts - 1:
-                    await asyncio.sleep(self.config.retry_delay)
-
-        return {"status": "failed", "error": str(last_error)}
+        client = await self._get_client()
+        try:
+            resp = await with_retry(
+                lambda: client.post(
+                    f"{self._base_url}/chat/completions",
+                    json=params,
+                    headers=headers,
+                ),
+                retries=self.config.retry_attempts,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            if not content or not content.strip():
+                logger.warning("LLM returned empty content, model=%s", params["model"])
+                return {"status": "failed", "error": "empty_content"}
+            logger.debug(
+                "chat completed: model=%s tokens=%d",
+                params["model"],
+                len(content),
+            )
+            return {"status": "completed", "content": content}
+        except httpx.HTTPStatusError as e:
+            logger.error("chat HTTP error: %s %s", e.response.status_code, e.response.text[:200])
+            return {"status": "failed", "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error("chat error: %s", type(e).__name__, exc_info=True)
+            return {"status": "failed", "error": str(e)}
 
     async def chat_stream(
         self,
