@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -190,3 +190,56 @@ class TestNodeClient:
         node = NodeInfo(node_id="n1", host="192.0.2.1", port=1)
         result = await client.submit_task(node, "s1", "test")
         assert result["status"] == "failed"
+
+    def _fake_resp(self, content: str) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+        }
+        return resp
+
+    @pytest.mark.asyncio
+    async def test_submit_task_dh3_empty_content_guard(self):
+        # D-H3 守卫 (issue#14): 成功路径 content 空/空白 → status=failed error=empty_content, 非 completed.
+        client = NodeClient()
+        node = NodeInfo(node_id="n1", host="localhost")
+        mock_c = MagicMock()
+        mock_c.post = AsyncMock(return_value=self._fake_resp(""))
+        mock_c.__aenter__ = AsyncMock(return_value=mock_c)
+        mock_c.__aexit__ = AsyncMock(return_value=None)
+        with patch("fusion_code_modelization.cluster.node_client.httpx.AsyncClient", return_value=mock_c):
+            result = await client.submit_task(node, "s1", "test")
+        assert result["status"] == "failed"
+        assert result["error"] == "empty_content"
+        assert result["node"] == "n1"
+
+    @pytest.mark.asyncio
+    async def test_submit_task_dh3_whitespace_content_guard(self):
+        # D-H3 守卫 (issue#14): 纯空白 content 同样视为静默失败 → status=failed error=empty_content.
+        client = NodeClient()
+        node = NodeInfo(node_id="n1", host="localhost")
+        mock_c = MagicMock()
+        mock_c.post = AsyncMock(return_value=self._fake_resp("   \n\t  "))
+        mock_c.__aenter__ = AsyncMock(return_value=mock_c)
+        mock_c.__aexit__ = AsyncMock(return_value=None)
+        with patch("fusion_code_modelization.cluster.node_client.httpx.AsyncClient", return_value=mock_c):
+            result = await client.submit_task(node, "s1", "test")
+        assert result["status"] == "failed"
+        assert result["error"] == "empty_content"
+
+    @pytest.mark.asyncio
+    async def test_submit_task_normal_content_unchanged(self):
+        # D-H3 守卫 (issue#14): 有 content → status=completed 不变, content 透传.
+        client = NodeClient()
+        node = NodeInfo(node_id="n1", host="localhost")
+        mock_c = MagicMock()
+        mock_c.post = AsyncMock(return_value=self._fake_resp("hello world"))
+        mock_c.__aenter__ = AsyncMock(return_value=mock_c)
+        mock_c.__aexit__ = AsyncMock(return_value=None)
+        with patch("fusion_code_modelization.cluster.node_client.httpx.AsyncClient", return_value=mock_c):
+            result = await client.submit_task(node, "s1", "test")
+        assert result["status"] == "completed"
+        assert result["content"] == "hello world"
+        assert result["node"] == "n1"

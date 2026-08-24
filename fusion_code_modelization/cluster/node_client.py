@@ -45,6 +45,11 @@ class NodeClient:
                 resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
+                # D-H3 静默失败守卫 (issue#14): 成功路径 content 空/空白 → 标 failed, 非 completed.
+                # 调用方 ClusterScheduler.dispatch 按 status 字段判定, 空内容透传 = 静默成功活样本.
+                if not content or not content.strip():
+                    logger.warning("submit_task empty content on %s, model=%s", node.node_id, DEFAULT_LOCAL_MODEL)
+                    return {"status": "failed", "error": "empty_content", "node": node.node_id}
                 return {"status": "completed", "content": content, "node": node.node_id}
         except Exception as e:
             logger.error("submit_task failed on %s: %s", node.node_id, e)
