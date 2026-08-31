@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from ..core.config import DEFAULT_GATEWAY_URL
+from ..core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT
 from .app import create_app
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def run_server(
     host: str = "127.0.0.1",
-    port: int = 11441,
+    port: int = DEFAULT_SERVER_PORT,
     mlx_url: str = DEFAULT_GATEWAY_URL,
 ) -> None:
     import uvicorn

@@ -11,9 +11,9 @@ import logging
 import sys
 from pathlib import Path
 
-from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, GATEWAY_PORT
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT, GATEWAY_PORT
 
-VERSION = "0.6.4"
+VERSION = "0.6.5"
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -155,7 +155,7 @@ def main():
     # serve
     sv = sub.add_parser("serve", help="Start the REST API server")
     sv.add_argument("--host", default="127.0.0.1", help="Bind host")
-    sv.add_argument("--port", type=int, default=11441, help="Bind port")
+    sv.add_argument("--port", type=int, default=DEFAULT_SERVER_PORT, help="Bind port")
     sv.add_argument("--mlx-url", default=DEFAULT_GATEWAY_URL, help="fusion-gateway URL")
 
     # benchmark

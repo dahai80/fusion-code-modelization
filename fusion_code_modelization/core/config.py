@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOCAL_MODEL = "Qwen3.5-9B-4bit"
 DEFAULT_GATEWAY_URL = "http://localhost:11432/v1"
 GATEWAY_PORT = 11432
+DEFAULT_SERVER_PORT = 11459
 
 
 def _resolve_api_key() -> str:

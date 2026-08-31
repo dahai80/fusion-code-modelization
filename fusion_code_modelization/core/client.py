@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 import httpx
-
 from fusion_core.http_client import get_async_client, with_retry
 
 from .config import ModelConfig
@@ -24,10 +22,13 @@ class MLXClient:
         self._base_url = self.config.base_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
+    async def _get_client(self, timeout: float | None = None) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = get_async_client(self._base_url, timeout=self.config.timeout)
-            logger.debug("Pooled httpx.AsyncClient via fusion_core, base=%s", self._base_url)
+            effective_timeout = timeout or self.config.timeout
+            self._client = get_async_client(self._base_url, timeout=effective_timeout)
+            logger.debug(
+                "Pooled httpx.AsyncClient via fusion_core, base=%s timeout=%s", self._base_url, effective_timeout
+            )
         return self._client
 
     async def aclose(self) -> None:
@@ -56,7 +57,7 @@ class MLXClient:
         request_timeout = timeout or self.config.timeout
         headers = self.config.auth_headers()
 
-        client = await self._get_client()
+        client = await self._get_client(timeout=request_timeout)
         try:
             resp = await with_retry(
                 lambda: client.post(
