@@ -152,7 +152,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `trace <action> [--artifact-type] [--artifact-id]` | End-to-end traceability (create/link/forward/backward/report) |
 | `agent-comm <action> [--agents] [--collab-id]` | Agent cross-machine communication (create/submit/conflict/resolve/complete/list/status) |
 | `version` | Show version info |
-| `serve [--host] [--port] [--mlx-url]` | Start the REST API server (default `127.0.0.1:11441`) |
+| `serve [--host] [--port] [--mlx-url]` | Start the REST API server (default `127.0.0.1:11459`) |
 | `--json` | Global flag: output results as JSON |
 | `--verbose` / `-v` | Global flag: enable debug logging |
 | `--quiet` / `-q` | Global flag: suppress non-error output |
@@ -177,8 +177,8 @@ Issue #3 — a FastAPI server exposing sessions, workflows, and cluster operatio
 # Install server extras (fastapi + uvicorn)
 pip install -e ".[server]"
 
-# Start the server (default 127.0.0.1:11441)
-fusion-code-modelization serve --port 11441
+# Start the server (default 127.0.0.1:11459)
+fusion-code-modelization serve --port 11459
 
 # Or via the module
 python -m fusion_code_modelization.server.runner
@@ -359,6 +359,12 @@ ruff format --check .
 ---
 
 ## Changelog
+
+### v0.6.5 — Server Port Fix (closes #16)
+- **Issue #16**: moved the REST API server default port from `11441` to **`11459`** to resolve the collision with `fusion-code` (which owns `11441` per the monorepo port registry); `11459` allocated from the verified-free pool across all 40 repos
+- **Centralized**: new `DEFAULT_SERVER_PORT = 11459` constant in `core/config.py`; `server/runner.py:run_server` and the `serve` CLI subcommand both reference it (single source of truth)
+- **Docs**: README serve table + REST API section updated to `11459`
+- 727 tests passing, lint + format clean
 
 ### v0.6.4 — Gateway Routing (no direct fusion-mlx)
 - **Mandatory gateway routing**: all inference now goes through **fusion-gateway** on `localhost:11432/v1`; the package no longer connects to fusion-mlx (`localhost:11434`) directly
