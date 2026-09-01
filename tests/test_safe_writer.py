@@ -43,3 +43,44 @@ class TestSafeWriterTraversal:
         # non-strict resolve does not raise; used for export paths
         resolved = writer.resolve_within("/tmp/some_export.json")
         assert resolved == Path("/tmp/some_export.json").resolve()
+
+    def test_write_bytes_roundtrip(self, tmp_path):
+        writer = SafeWriter(tmp_path)
+        p = writer.write_bytes("bin.dat", b"\x00\x01\x02")
+        assert p.read_bytes() == b"\x00\x01\x02"
+
+    def test_write_json_roundtrip(self, tmp_path):
+        import json
+
+        writer = SafeWriter(tmp_path)
+        p = writer.write_json("out.json", {"k": 1})
+        assert json.loads(p.read_text()) == {"k": 1}
+
+    def test_mkdir_creates_dir(self, tmp_path):
+        writer = SafeWriter(tmp_path)
+        p = writer.mkdir("nested/deep")
+        assert p.is_dir()
+
+    def test_unlink_missing_returns_false(self, tmp_path):
+        writer = SafeWriter(tmp_path)
+        assert writer.unlink("nope.txt") is False
+
+    def test_hook_deny_blocks_write(self, tmp_path):
+        from fusion_code_modelization.core.hooks import (
+            HookAction,
+            HookDecision,
+            HookEvent,
+            HookHandler,
+            HookRegistry,
+        )
+
+        def _deny(payload):
+            return HookDecision(action=HookAction.DENY, reason="blocked")
+
+        handler = HookHandler(name="deny", event=HookEvent.PRE_WRITE, execute=_deny)
+        reg = HookRegistry()
+        reg.register(handler)
+        reg.enabled = True
+        writer = SafeWriter(tmp_path, registry=reg)
+        with pytest.raises(UnsafePathError, match="hook denied"):
+            writer.write_text("ok.txt", "data")

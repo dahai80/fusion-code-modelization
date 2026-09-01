@@ -351,6 +351,35 @@ class TestRunnerLoopback:
         assert _is_loopback("0.0.0.0") is False
 
 
+class TestServerLifespan:
+    def test_lifespan_restores_and_persists_workflow_state(self, monkeypatch, tmp_path):
+        import json
+
+        home = tmp_path / "home"
+        home.mkdir()
+        state_path = home / ".fusion" / "code_mod" / "workflow_results.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps({"plan_x": {"plan_id": "plan_x", "status": "completed"}}))
+        monkeypatch.setenv("HOME", str(home))
+        with tempfile.TemporaryDirectory() as base:
+            app = create_app(base_dir=base)
+            with TestClient(app) as client:
+                assert client.get("/api/workflows/plan_x").status_code == 200
+            assert json.loads(state_path.read_text())["plan_x"]["plan_id"] == "plan_x"
+
+    def test_lifespan_restore_bad_json_warns(self, monkeypatch, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir()
+        state_path = home / ".fusion" / "code_mod" / "workflow_results.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text("not json{")
+        monkeypatch.setenv("HOME", str(home))
+        with tempfile.TemporaryDirectory() as base:
+            app = create_app(base_dir=base)
+            with TestClient(app):
+                pass
+
+
 class TestServerGuards:
     def test_oversized_body_returns_413(self):
         with tempfile.TemporaryDirectory() as tmpdir:
