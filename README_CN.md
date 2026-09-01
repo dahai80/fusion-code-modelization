@@ -69,6 +69,9 @@ fusion-code-modelization transpile input.py --from=python --to=java --output=out
 
 # COBOL 转 Go
 fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --output=modern.go
+
+# Agent Loop 自愈（校验逻辑等价性，失败自动重试）
+fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --loop --max-iter=5
 ```
 
 ### 安全重构
@@ -79,18 +82,51 @@ fusion-code-modelization refactor legacy_code.py --output=refactored.py
 
 # 带特定指令
 fusion-code-modelization refactor messy_code.py --instructions="提取辅助函数，添加类型注解"
+
+# Agent Loop 自愈（双运行等价校验 + 自动重试）
+fusion-code-modelization refactor legacy_code.py --loop --output=refactored.py
 ```
 
 ### 生成测试
 
 ```bash
 fusion-code-modelization test-gen source.py --output=tests.py
+
+# Agent Loop 自愈（语法校验，Python 用 compile()，其它语言用 LLM 校验）
+fusion-code-modelization test-gen source.py --loop
 ```
 
 ### 安全扫描
 
 ```bash
 fusion-code-modelization security legacy_code.py --output=security_report.json
+```
+
+---
+
+## Agent Loop 自愈引擎
+
+`--loop` 为 `transpile`、`refactor`、`test-gen` 启用**有界、全量追踪**的自愈循环。模型只决定
+**如何修复**未通过校验的输出，**不**选择运行哪个工具——工具序列固定，保证确定性与可审计。
+每次迭代：构造 prompt → LLM → 提取代码 → 校验工具 → 失败则将错误反馈并重试，上限
+`--max-iter`（默认 5）。每次运行写一份 JSONL 追踪。
+
+| 标志 | 适用 | 说明 |
+|------|------|------|
+| `--loop` | transpile / refactor / test-gen | 启用 Agent Loop 自愈（优先级高于 `--stream`） |
+| `--max-iter N` | transpile / refactor / test-gen | 最大迭代次数（默认 5） |
+
+## Hook 拦截层
+
+模型**无法绕过**的确定性拦截层。每个 LLM 响应（`POST_LLM`）、写入（`PRE_WRITE`）、工具执行
+（`PRE_EXEC`）都经过 Hook 注册表，可 `allow` / `deny` / `modify` 负载。内置拦截器阻止路径穿越
+/ 系统目录、破坏性 shell 命令（`rm -rf /`、fork 炸弹、`mkfs` 等），并脱敏泄露的密钥（AWS key、
+`sk-*`、`ghp_*`、私钥）。deny / 脱敏决策在有融合守卫时委托 `fusion-core.guard_client` → fusion-guard
+（UDS JSON-RPC），守卫不可用时回退正则 + `WARNING` 日志。
+
+```bash
+# 默认开启（--loop 时）；用全局标志关闭：
+fusion-code-modelization --no-hooks transpile src.py --from=python --to=go --loop
 ```
 
 ---

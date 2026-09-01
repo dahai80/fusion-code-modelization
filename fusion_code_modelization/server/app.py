@@ -37,7 +37,7 @@ class WorkflowRunRequest(BaseModel):
 
 
 def create_app(mlx_url: str | None = None, base_dir: str | None = None) -> FastAPI:
-    app = FastAPI(title="Fusion-Code-Modelization REST API", version="0.6.5")
+    app = FastAPI(title="Fusion-Code-Modelization REST API", version="0.7.0")
     engine = SessionEngine(store=SessionStore(base_dir=base_dir) if base_dir else SessionStore())
     executor = WorkflowExecutor(mlx_url=mlx_url or DEFAULT_GATEWAY_URL)
 

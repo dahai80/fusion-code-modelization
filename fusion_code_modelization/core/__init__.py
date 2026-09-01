@@ -1,5 +1,6 @@
 # GateGuard: Importers: workflow/executor.py, session/engine.py, decompose/detector.py, tests. Affected API: exports ProgressEvent, ProgressCallback, LoggingProgressCallback, CompositeProgressCallback, emit_*. Data schemas: none. User instruction: Phase 6 — wire progress callbacks, expose via core __init__.
 
+from .agent_loop import AgentLoop, LoopStatus, LoopTool, LoopToolResult, LoopTrace
 from .client import DualStackClient, MLXClient
 from .config import (
     DEFAULT_GATEWAY_URL,
@@ -12,6 +13,19 @@ from .config import (
     OfflineMode,
     RoutingStrategy,
     get_model_config,
+)
+from .hooks import (
+    GuardBridge,
+    HookAction,
+    HookDecision,
+    HookEvent,
+    HookHandler,
+    HookRegistry,
+    audit_log,
+    dangerous_cmd_guard,
+    default_registry,
+    path_guard,
+    secret_scrub,
 )
 from .progress import (
     CompositeProgressCallback,
@@ -27,6 +41,22 @@ from .progress import (
 __all__ = [
     "MLXClient",
     "DualStackClient",
+    "AgentLoop",
+    "LoopTool",
+    "LoopToolResult",
+    "LoopTrace",
+    "LoopStatus",
+    "HookEvent",
+    "HookAction",
+    "HookDecision",
+    "HookHandler",
+    "HookRegistry",
+    "GuardBridge",
+    "default_registry",
+    "path_guard",
+    "dangerous_cmd_guard",
+    "secret_scrub",
+    "audit_log",
     "DEFAULT_LOCAL_MODEL",
     "DEFAULT_GATEWAY_URL",
     "ModelConfig",

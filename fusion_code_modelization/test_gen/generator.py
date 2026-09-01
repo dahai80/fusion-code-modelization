@@ -6,10 +6,31 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
+from fusion_code_modelization.core.hooks import HookRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def _syntax_check_tool(client: MLXClient, language: str) -> LoopTool:
+    async def execute(produced: str) -> LoopToolResult:
+        if language == "python":
+            try:
+                compile(produced, "<generated_tests>", "exec")
+                return LoopToolResult(passed=True, output="compile_ok", error="")
+            except SyntaxError as e:
+                return LoopToolResult(passed=False, output="", error=f"syntax_error:{e}")
+        ver = await client.simple_chat(
+            f"Is this {language} code syntactically valid? Answer YES or NO then explain.\n\n```\n{produced[:2000]}\n```",
+            max_tokens=256,
+            temperature=0.0,
+        )
+        passed = "YES" in ver.upper()[:10]
+        return LoopToolResult(passed=passed, output=ver[:500], error="" if passed else "syntax_invalid")
+
+    return LoopTool(name="syntax_check", execute=execute, description="generated test syntax check")
 
 
 class UnitTestGenerator:
@@ -67,6 +88,48 @@ class UnitTestGenerator:
         except Exception as e:
             logger.error("generate_unit_tests_stream failed: %s", e)
             yield {"type": "done", "result": {"status": "failed", "error": str(e)}}
+
+    async def generate_with_loop(
+        self, code: str, language: str, max_iter: int = 5, hooks: HookRegistry | None = None
+    ) -> dict[str, Any]:
+        verify = await _syntax_check_tool(self._client, language)
+        loop = AgentLoop(client=self._client, tools=[verify], max_iter=max_iter, extract_language=language, hooks=hooks)
+
+        def build_prompt(ctx: str, feedback: str | None) -> str:
+            prompt = (
+                f"Generate comprehensive unit tests for this {language} code. "
+                f"Include edge cases, normal cases, and error cases. "
+                f"Use the standard testing framework for {language}.\n\n"
+                f"```{language}\n{code[:4000]}\n```"
+            )
+            if feedback:
+                prompt += (
+                    f"\n\nPrevious tests had a syntax error: {feedback}. "
+                    "Fix the syntax and output the corrected test code only."
+                )
+            return prompt
+
+        logger.info("generate_with_loop start: language=%s max_iter=%d", language, max_iter)
+        loop_result = await loop.run(
+            objective=f"generate syntactically valid {language} unit tests",
+            build_prompt=build_prompt,
+            extract=None,
+            verify_tool="syntax_check",
+        )
+        if loop_result["status"] == "completed":
+            return {
+                "status": "completed",
+                "tests": loop_result["result"],
+                "language": language,
+                "iterations": loop_result["iterations"],
+            }
+        return {
+            "status": "failed",
+            "error": loop_result.get("last_error", "max_iter_reached"),
+            "language": language,
+            "iterations": loop_result["iterations"],
+            "partial": loop_result.get("result", ""),
+        }
 
     async def generate_integration_tests(self, components: list[dict], language: str) -> dict[str, Any]:
         desc = "\n".join(f"- {c.get('name', '?')}: {c.get('desc', '')[:200]}" for c in components)
