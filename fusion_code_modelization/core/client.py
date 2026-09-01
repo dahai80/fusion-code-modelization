@@ -66,6 +66,7 @@ class MLXClient:
                     headers=headers,
                 ),
                 retries=self.config.retry_attempts,
+                total_deadline=self.config.timeout,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -80,11 +81,12 @@ class MLXClient:
             )
             return {"status": "completed", "content": content}
         except httpx.HTTPStatusError as e:
-            logger.error("chat HTTP error: %s %s", e.response.status_code, e.response.text[:200])
+            logger.error("chat HTTP error: %s (response body logged server-side only)", e.response.status_code)
+            logger.debug("chat HTTP error body: %s", e.response.text[:200])
             return {"status": "failed", "error": f"HTTP {e.response.status_code}"}
         except Exception as e:
             logger.error("chat error: %s", type(e).__name__, exc_info=True)
-            return {"status": "failed", "error": str(e)}
+            return {"status": "failed", "error": type(e).__name__}
 
     async def chat_stream(
         self,
@@ -105,32 +107,38 @@ class MLXClient:
         params["stream"] = True
 
         headers = self.config.auth_headers()
-        async with (
-            httpx.AsyncClient(timeout=self.config.timeout) as client,
-            client.stream(
+        client = await self._get_client(timeout=self.config.timeout)
+        token_count = 0
+        try:
+            async with client.stream(
                 "POST",
                 f"{self._base_url}/chat/completions",
                 json=params,
                 headers=headers,
-            ) as resp,
-        ):
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                payload = line[6:]
-                if payload.strip() == "[DONE]":
-                    break
-                try:
-                    import json
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:]
+                    if payload.strip() == "[DONE]":
+                        break
+                    try:
+                        import json
 
-                    chunk = json.loads(payload)
-                    delta = chunk["choices"][0].get("delta", {})
-                    token = delta.get("content", "")
-                    if token:
-                        yield token
-                except Exception:
-                    continue
+                        chunk = json.loads(payload)
+                        delta = chunk["choices"][0].get("delta", {})
+                        token = delta.get("content", "")
+                        if token:
+                            token_count += 1
+                            yield token
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.error("chat_stream error: %s", type(e).__name__, exc_info=True)
+            return
+        if token_count == 0:
+            logger.warning("chat_stream returned empty content, model=%s", params["model"])
 
     @staticmethod
     def extract_code(content: str, language: str = "") -> str:
@@ -193,8 +201,8 @@ class DualStackClient:
     ) -> dict[str, Any]:
         from .config import ModelStack
 
-        prompt_text = " ".join(m.get("content", "") for m in messages)
-        stack = self._router.route(prompt_text)
+        last_user = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+        stack = self._router.route(last_user[:4000])
         client = self._get_client(stack.value)
         logger.info("smart_chat routed to %s stack", stack.value)
         result = await client.chat(

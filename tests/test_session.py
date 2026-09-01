@@ -102,6 +102,25 @@ class TestSessionStore:
             assert len(running) == 1
             assert running[0].session_id == "s1"
 
+    def test_load_rejects_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            assert store.load("../escape") is None
+            assert store.load("a/b") is None
+            assert store.load("%2f%2e%2e") is None
+
+    def test_delete_rejects_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            assert store.delete("../escape") is False
+            assert store.delete("..\\..\\etc") is False
+
+    def test_save_rejects_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SessionStore(base_dir=tmpdir)
+            with pytest.raises(ValueError):
+                store.save(Session(session_id="../pwn", name="evil"))
+
 
 class TestSessionEngine:
     def test_create_session(self):

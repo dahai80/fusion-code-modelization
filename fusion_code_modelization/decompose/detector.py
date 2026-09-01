@@ -53,7 +53,7 @@ class BoundaryDetector:
             src_mod = edge.get("source", "").split("/")[0] if "/" in edge.get("source", "") else "root"
             tgt_mod = edge.get("target", "").split("/")[0] if "/" in edge.get("target", "") else "root"
             if src_mod != tgt_mod:
-                key = tuple(sorted([src_mod, tgt_mod]))
+                key: tuple[str, str] = (src_mod, tgt_mod) if src_mod < tgt_mod else (tgt_mod, src_mod)
                 edge_map[key] += 1
         for (a, b), weight in edge_map.items():
             edges.append(CouplingEdge(source=a, target=b, weight=weight))
@@ -84,10 +84,25 @@ class BoundaryDetector:
         emit_start("detect_boundaries_llm", f"nodes={len(graph.get('nodes', {}))}", progress_callback)
         coupling = self.compute_coupling(graph)
         emit_progress("detect_boundaries_llm", f"coupling_edges={len(coupling)}", 30, progress_callback)
+        all_nodes = list(graph.get("nodes", {}).keys())
+        node_trunc = len(all_nodes) > 100
+        edge_trunc = len(coupling) > 50
         graph_str = json.dumps(
-            {"nodes": list(graph.get("nodes", {}).keys())[:100], "edges": [e.to_dict() for e in coupling[:50]]},
+            {
+                "nodes": all_nodes[:100],
+                "edges": [e.to_dict() for e in coupling[:50]],
+                "truncated": node_trunc or edge_trunc,
+                "truncated_node_count": len(all_nodes),
+                "truncated_edge_count": len(coupling),
+            },
             indent=2,
         )
+        if node_trunc or edge_trunc:
+            logger.warning(
+                "detect_boundaries_llm input truncated: nodes=%d (cap 100), edges=%d (cap 50) — suggestions cover subset only",
+                len(all_nodes),
+                len(coupling),
+            )
         sizes: dict[str, int] = defaultdict(int)
         for node_id in graph.get("nodes", {}):
             module = node_id.split("/")[0] if "/" in node_id else "root"

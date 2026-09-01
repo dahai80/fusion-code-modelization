@@ -16,6 +16,8 @@ from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfi
 
 logger = logging.getLogger(__name__)
 
+_LARGE_INPUT_WARN = 64_000
+
 
 class SecurityScanner:
     def __init__(
@@ -59,6 +61,8 @@ class SecurityScanner:
         }
 
     async def scan_stream(self, code: str, language: str) -> AsyncIterator[dict[str, Any]]:
+        if len(code) > _LARGE_INPUT_WARN:
+            logger.warning("scan_stream large input: %d chars (no truncation; full code sent to LLM)", len(code))
         static_findings = []
         static_findings.extend(self._check_hardcoded_secrets(code))
         static_findings.extend(self._check_vulnerable_patterns(code, language))
@@ -82,7 +86,7 @@ class SecurityScanner:
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     resp = await http.post(
                         f"{self._fusion_security_url}/api/v1/scan",
-                        json={"code": code[:6000], "language": language},
+                        json={"code": code, "language": language},
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -108,7 +112,7 @@ class SecurityScanner:
             f"List: 1) SQL injection, 2) XSS, 3) hardcoded secrets, "
             f"4) outdated crypto, 5) path traversal, 6) command injection. "
             f"Return as JSON array: [{{'type': str, 'severity': 'high|medium|low', 'line': int, 'description': str}}]\n\n"
-            f"```{language}\n{code[:3000]}\n```"
+            f"```{language}\n{code}\n```"
         )
         accumulated = []
         try:
@@ -123,8 +127,14 @@ class SecurityScanner:
             full = "".join(accumulated)
             llm_findings = []
             if full.strip().startswith("["):
+                parsed = None
                 with contextlib.suppress(json.JSONDecodeError):
-                    llm_findings = json.loads(full)
+                    parsed = json.loads(full)
+                if isinstance(parsed, list):
+                    llm_findings = self._validate_findings(parsed)
+                    dropped = len(parsed) - len(llm_findings)
+                    if dropped:
+                        logger.warning("dropped %d malformed LLM finding(s)", dropped)
             all_findings = static_findings + llm_findings
             yield {
                 "type": "done",
@@ -157,7 +167,7 @@ class SecurityScanner:
                     "role": "user",
                     "content": (
                         f"Fix this vulnerability: {vulnerability}\n\n"
-                        f"```\n{code[:3000]}\n```\n\n"
+                        f"```\n{code}\n```\n\n"
                         f"Return only the fixed code, no explanation."
                     ),
                 }
@@ -188,7 +198,7 @@ class SecurityScanner:
             async with httpx.AsyncClient(timeout=30.0) as http:
                 resp = await http.post(
                     f"{self._fusion_security_url}/api/v1/scan",
-                    json={"code": code[:6000], "language": language},
+                    json={"code": code, "language": language},
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -209,7 +219,7 @@ class SecurityScanner:
                         f"List: 1) SQL injection, 2) XSS, 3) hardcoded secrets, "
                         f"4) outdated crypto, 5) path traversal, 6) command injection. "
                         f"Return as JSON array: [{{'type': str, 'severity': 'high|medium|low', 'line': int, 'description': str}}]\n\n"
-                        f"```{language}\n{code[:3000]}\n```"
+                        f"```{language}\n{code}\n```"
                     ),
                 }
             ],
@@ -220,10 +230,30 @@ class SecurityScanner:
             content = result["content"]
             if content.strip().startswith("["):
                 try:
-                    return {"findings": json.loads(content)}
+                    parsed = json.loads(content)
                 except json.JSONDecodeError:
-                    pass
+                    parsed = None
+                if isinstance(parsed, list):
+                    return {"findings": self._validate_findings(parsed)}
         return {"findings": []}
+
+    @staticmethod
+    def _validate_findings(raw: list) -> list[dict]:
+        valid = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            sev = str(item.get("severity", "low")).lower()
+            if sev not in ("high", "medium", "low"):
+                sev = "low"
+            finding = {
+                "type": str(item.get("type", "unknown")),
+                "severity": sev,
+                "line": item.get("line", 0) if isinstance(item.get("line"), int) else 0,
+                "description": str(item.get("description", "")),
+            }
+            valid.append(finding)
+        return valid
 
     @staticmethod
     def _check_hardcoded_secrets(code: str) -> list[dict]:

@@ -14,15 +14,40 @@ DEFAULT_SERVER_PORT = 11459
 
 
 def _resolve_api_key() -> str:
-    for env_name in ("FUSION_MLX_API_KEY", "MLX_API_KEY", "OPENAI_API_KEY"):
+    for env_name in ("FUSION_MLX_API_KEY", "MLX_API_KEY"):
         key = os.environ.get(env_name, "")
         if key:
             return key
     logger.warning(
-        "No API key found in FUSION_MLX_API_KEY/MLX_API_KEY/OPENAI_API_KEY; "
-        "set FUSION_MLX_API_KEY to the fusion-gateway client key"
+        "No API key found in FUSION_MLX_API_KEY/MLX_API_KEY; set FUSION_MLX_API_KEY to the fusion-gateway client key"
     )
     return ""
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("invalid %s=%r, using default %s", name, raw, default)
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("invalid %s=%r, using default %s", name, raw, default)
+        return default
+
+
+def _env_str(name: str, default: str) -> str:
+    return os.environ.get(name, default)
 
 
 class ModelStack(StrEnum):
@@ -39,12 +64,12 @@ class RoutingStrategy(StrEnum):
 
 @dataclass
 class ModelConfig:
-    model: str = DEFAULT_LOCAL_MODEL
+    model: str = field(default_factory=lambda: _env_str("FUSION_MODEL_ID", DEFAULT_LOCAL_MODEL))
     temperature: float = 0.1
     max_tokens: int = 4096
-    timeout: float = 120.0
-    base_url: str = DEFAULT_GATEWAY_URL
-    retry_attempts: int = 2
+    timeout: float = field(default_factory=lambda: _env_float("FUSION_TIMEOUT", 120.0))
+    base_url: str = field(default_factory=lambda: _env_str("FUSION_GATEWAY_URL", DEFAULT_GATEWAY_URL))
+    retry_attempts: int = field(default_factory=lambda: _env_int("FUSION_RETRY_ATTEMPTS", 2))
     retry_delay: float = 1.0
     api_key: str = field(default_factory=_resolve_api_key)
 
@@ -64,16 +89,10 @@ class ModelConfig:
 @dataclass
 class DualModelConfig:
     local_config: ModelConfig = field(default_factory=ModelConfig)
-    cloud_config: ModelConfig = field(
-        default_factory=lambda: ModelConfig(
-            model="claude-sonnet-5",
-            base_url="https://api.anthropic.com/v1",
-            timeout=60.0,
-        )
-    )
-    routing_strategy: RoutingStrategy = RoutingStrategy.LOCAL_FIRST
+    cloud_config: ModelConfig = field(default_factory=ModelConfig)
+    routing_strategy: RoutingStrategy = RoutingStrategy.LOCAL_ONLY
     complexity_threshold: float = 0.7
-    fallback_enabled: bool = True
+    fallback_enabled: bool = False
 
     def get_config(self, stack: ModelStack) -> ModelConfig:
         if stack == ModelStack.CLOUD:

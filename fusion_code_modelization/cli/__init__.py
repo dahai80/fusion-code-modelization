@@ -11,12 +11,32 @@ import logging
 import sys
 from pathlib import Path
 
+from fusion_code_modelization import __version__ as VERSION
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT, GATEWAY_PORT
 from fusion_code_modelization.core.hooks import default_registry
 
-VERSION = "0.7.0"
-
 logger = logging.getLogger("fusion_code_modelization")
+
+_default_hooks_cache = None
+
+
+def _cli_hooks():
+    global _default_hooks_cache
+    if _default_hooks_cache is None:
+        _default_hooks_cache = default_registry()
+    return _default_hooks_cache
+
+
+class _EmptyCodeError(Exception):
+    pass
+
+
+def _read_code(path: str) -> str:
+    code = Path(path).read_text(encoding="utf-8", errors="replace")
+    if not code.strip():
+        logger.warning("file %s is empty; skipping LLM call", path)
+        raise _EmptyCodeError(f"file {path} is empty")
+    return code
 
 
 class _GlobalFlags:
@@ -268,7 +288,24 @@ def _configure_logging(args):
         level = logging.DEBUG
     else:
         level = logging.WARNING
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+def _write_output(output: str, content: str, hooks=None) -> bool:
+    from fusion_code_modelization.core.safe_writer import SafeWriter, UnsafePathError
+
+    writer = SafeWriter(Path(".").resolve(), registry=hooks or _cli_hooks(), strict=False)
+    try:
+        writer.write_text(output, content)
+        return True
+    except UnsafePathError as e:
+        logger.error("output write blocked: %s", e)
+        print(f"Error: output path blocked: {e}")
+        return False
 
 
 def _cmd_version():
@@ -284,7 +321,11 @@ def _cmd_serve(args):
     from fusion_code_modelization.server import run_server
 
     mlx_url = getattr(args, "mlx_url", None) or DEFAULT_GATEWAY_URL
-    run_server(host=args.host, port=args.port, mlx_url=mlx_url)
+    try:
+        run_server(host=args.host, port=args.port, mlx_url=mlx_url)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
 
 async def _cmd_analyze(args):
@@ -296,8 +337,8 @@ async def _cmd_analyze(args):
     debt = analyzer.estimate_tech_debt(graph)
     report = analyzer.generate_report(graph, debt)
     if args.output:
-        Path(args.output).write_text(report, encoding="utf-8")
-        print(f"Report saved to {args.output}")
+        if _write_output(args.output, report):
+            print(f"Report saved to {args.output}")
     else:
         print(report)
 
@@ -305,7 +346,11 @@ async def _cmd_analyze(args):
 async def _cmd_transpile(args):
     from fusion_code_modelization.migration.transpiler import CodeTranspiler
 
-    code = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    try:
+        code = _read_code(args.file)
+    except _EmptyCodeError as e:
+        print(f"Error: {e}")
+        return
     transpiler = CodeTranspiler(mlx_url=args.mlx_url)
     print(f"Transpiling {args.file} from {args.source_lang} to {args.target_lang}...")
     if getattr(args, "loop", False):
@@ -317,8 +362,8 @@ async def _cmd_transpile(args):
             output = result["code"]
             print(f"[loop] converged in {result.get('iterations', 0)} iterations")
             if args.output:
-                Path(args.output).write_text(output, encoding="utf-8")
-                print(f"Transpiled code saved to {args.output}")
+                if _write_output(args.output, output):
+                    print(f"Transpiled code saved to {args.output}")
             else:
                 print(output)
         else:
@@ -332,8 +377,7 @@ async def _cmd_transpile(args):
                 result = chunk["result"]
         print()
         if result and result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["code"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["code"]):
                 print(f"Transpiled code saved to {args.output}")
         else:
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
@@ -342,8 +386,8 @@ async def _cmd_transpile(args):
         if result["status"] == "completed":
             output = result["code"]
             if args.output:
-                Path(args.output).write_text(output, encoding="utf-8")
-                print(f"Transpiled code saved to {args.output}")
+                if _write_output(args.output, output):
+                    print(f"Transpiled code saved to {args.output}")
             else:
                 print(output)
         else:
@@ -353,7 +397,11 @@ async def _cmd_transpile(args):
 async def _cmd_refactor(args):
     from fusion_code_modelization.refactor.refactorer import IncrementalRefactorer
 
-    code = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    try:
+        code = _read_code(args.file)
+    except _EmptyCodeError as e:
+        print(f"Error: {e}")
+        return
     refactorer = IncrementalRefactorer(mlx_url=args.mlx_url)
     lang = Path(args.file).suffix[1:] or "unknown"
     print(f"Refactoring {args.file}...")
@@ -363,8 +411,8 @@ async def _cmd_refactor(args):
         if result["status"] == "completed":
             print(f"[loop] converged in {result.get('iterations', 0)} iterations")
             if args.output:
-                Path(args.output).write_text(result["result"], encoding="utf-8")
-                print(f"Refactored code saved to {args.output}")
+                if _write_output(args.output, result["result"]):
+                    print(f"Refactored code saved to {args.output}")
             else:
                 print(result["result"])
         else:
@@ -380,16 +428,14 @@ async def _cmd_refactor(args):
                 result = chunk["result"]
         print()
         if result and result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["refactored"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["refactored"]):
                 print(f"Refactored code saved to {args.output}")
         else:
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await refactorer.refactor(code, lang, args.instructions)
         if result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["refactored"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["refactored"]):
                 print(f"Refactored code saved to {args.output}")
             else:
                 print(result["refactored"])
@@ -400,7 +446,11 @@ async def _cmd_refactor(args):
 async def _cmd_test_gen(args):
     from fusion_code_modelization.test_gen.generator import UnitTestGenerator
 
-    code = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    try:
+        code = _read_code(args.file)
+    except _EmptyCodeError as e:
+        print(f"Error: {e}")
+        return
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     generator = UnitTestGenerator(mlx_url=args.mlx_url)
     print(f"Generating tests for {args.file}...")
@@ -409,8 +459,7 @@ async def _cmd_test_gen(args):
         result = await generator.generate_with_loop(code, lang, max_iter=args.max_iter, hooks=hooks)
         if result["status"] == "completed":
             print(f"[loop] converged in {result.get('iterations', 0)} iterations")
-            if args.output:
-                Path(args.output).write_text(result["tests"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["tests"]):
                 print(f"Tests saved to {args.output}")
             else:
                 print(result["tests"])
@@ -427,16 +476,14 @@ async def _cmd_test_gen(args):
                 result = chunk["result"]
         print()
         if result and result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["tests"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["tests"]):
                 print(f"Tests saved to {args.output}")
         else:
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await generator.generate_unit_tests(code, lang)
         if result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["tests"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["tests"]):
                 print(f"Tests saved to {args.output}")
             else:
                 print(result["tests"])
@@ -447,7 +494,11 @@ async def _cmd_test_gen(args):
 async def _cmd_security(args):
     from fusion_code_modelization.security.scanner import SecurityScanner
 
-    code = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    try:
+        code = _read_code(args.file)
+    except _EmptyCodeError as e:
+        print(f"Error: {e}")
+        return
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     scanner = SecurityScanner(mlx_url=args.mlx_url)
     print(f"Scanning {args.file} for vulnerabilities...")
@@ -465,14 +516,14 @@ async def _cmd_security(args):
         if result:
             print(f"\nTotal: {result['total_findings']} finding(s) [{result['scan_mode']}]")
             if args.output:
-                Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+                _write_output(args.output, json.dumps(result, indent=2))
     else:
         result = await scanner.scan(code, lang)
         print(f"Found {result['total_findings']} issue(s):")
         for f in result.get("findings", []):
             print(f"  [{f['severity']}] Line {f['line']}: {f['description']}")
         if args.output:
-            Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+            _write_output(args.output, json.dumps(result, indent=2))
 
 
 def _cmd_session(args):
@@ -524,20 +575,20 @@ def _cmd_snapshot(args):
 
 
 async def _cmd_workflow(args):
-    from fusion_code_modelization.workflow import WORKFLOW_TEMPLATES, TaskDecomposer, WorkflowExecutor
+    from fusion_code_modelization.workflow import TaskDecomposer, WorkflowExecutor
 
     if args.action == "decompose":
         decomposer = TaskDecomposer()
         plan = await decomposer.decompose(args.description, template=args.template)
-        print(f"Plan: {plan.name} ({len(plan.tasks)} tasks)")
-        for t in plan.tasks:
-            deps = ", ".join(t.dependencies) if t.dependencies else "none"
-            print(f"  [{t.id}] {t.name} (deps: {deps})")
+        print(f"Plan: {plan.goal} ({len(plan.subtasks)} tasks)")
+        for t in plan.subtasks:
+            deps = ", ".join(t.depends_on) if t.depends_on else "none"
+            print(f"  [{t.task_id}] {t.title} (deps: {deps})")
     elif args.action == "run":
-        template = WORKFLOW_TEMPLATES.get(args.template, WORKFLOW_TEMPLATES["generic"])
-        plan = template(args.description)
-        executor = WorkflowExecutor(max_parallel=args.max_parallel)
-        result = await executor.run_workflow(plan)
+        executor = WorkflowExecutor()
+        result = await executor.run_workflow(
+            goal=args.description, template=args.template, max_parallel=args.max_parallel
+        )
         print(f"Workflow: {result.success_count} succeeded, {result.failure_count} failed")
 
 
@@ -597,14 +648,18 @@ async def _cmd_decompose(args):
         print(f"  [{s.name}] modules={s.modules} score={s.coupling_score}")
     if args.output:
         data = [s.to_dict() for s in suggestions]
-        Path(args.output).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _write_output(args.output, json.dumps(data, indent=2))
 
 
 async def _cmd_doc_gen(args):
     from fusion_code_modelization.doc_gen import DocumentationGenerator
 
     gen = DocumentationGenerator(mlx_url=args.mlx_url)
-    code = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    try:
+        code = _read_code(args.file)
+    except _EmptyCodeError as e:
+        print(f"Error: {e}")
+        return
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     if getattr(args, "stream", False):
         result = None
@@ -615,8 +670,7 @@ async def _cmd_doc_gen(args):
                 result = chunk["result"]
         print()
         if result and result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["documentation"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["documentation"]):
                 print(f"Docs saved to {args.output}")
         else:
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
@@ -626,8 +680,7 @@ async def _cmd_doc_gen(args):
         else:
             result = await gen.generate_docs(code, lang, doc_type=args.doc_type)
         if result["status"] == "completed":
-            if args.output:
-                Path(args.output).write_text(result["documentation"], encoding="utf-8")
+            if args.output and _write_output(args.output, result["documentation"]):
                 print(f"Docs saved to {args.output}")
             else:
                 print(result["documentation"])
@@ -665,8 +718,8 @@ async def _cmd_audit(args):
         report = logger_inst.export_report(fmt=args.format, filters=filters)
         if args.output:
             text = json.dumps(report, indent=2) if isinstance(report, dict) else str(report)
-            Path(args.output).write_text(text, encoding="utf-8")
-            print(f"Report saved to {args.output}")
+            if _write_output(args.output, text):
+                print(f"Report saved to {args.output}")
         else:
             print(json.dumps(report, indent=2) if isinstance(report, dict) else report)
     elif args.action == "stats":
@@ -837,7 +890,7 @@ def _cmd_offline(args):
         caps = mgr.get_available_capabilities()
         print(f"Available capabilities ({len(caps)}):")
         for c in caps:
-            print(f"  {c.value}")
+            print(f"  {c}")
     elif args.action == "prepare":
         from fusion_code_modelization.offline import OfflineMode
 
@@ -850,23 +903,32 @@ def _cmd_offline(args):
             model_ids=model_ids,
             plugin_ids=plugin_ids,
         )
-        print(f"Package prepared: {package.package_id}")
-        print(f"  Mode: {package.mode.value}, Size: {package.size_mb:.1f} MB")
+        if package.get("status") != "completed":
+            print(f"Prepare failed: {package.get('error', 'unknown')}")
+            return
+        print(f"Package prepared: {package['package_id']}")
+        print(f"  Mode: {package['mode']}, Size: {package['size_mb']:.1f} MB")
     elif args.action == "validate":
         if not args.package_dir:
             print("Error: --package-dir required for validate")
             return
-        valid = mgr.validate_package(args.package_dir)
+        result = mgr.validate_package(args.package_dir)
+        valid = result.get("valid", False)
+        errors = result.get("errors", [])
         print(f"Package valid: {valid}")
+        for err in errors:
+            print(f"  error: {err}")
     elif args.action == "restore":
         if not args.package_dir:
             print("Error: --package-dir required for restore")
             return
-        pkg = mgr.restore_from_package(args.package_dir)
-        if pkg:
-            print(f"Restored: {pkg.package_id} ({pkg.mode.value})")
+        result = mgr.restore_from_package(args.package_dir)
+        if result.get("status") == "completed":
+            print(
+                f"Restored: {result['package_id']} ({result.get('models_restored', 0)} models, {result.get('plugins_restored', 0)} plugins)"
+            )
         else:
-            print("Restore failed")
+            print(f"Restore failed: {result.get('error', 'unknown')}")
 
 
 def _cmd_trace(args):

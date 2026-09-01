@@ -34,14 +34,18 @@ class Snapshot:
     label: str = ""
     deltas: list[FileDelta] = field(default_factory=list)
     created_at: float = 0.0
+    files: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "snapshot_id": self.snapshot_id,
             "label": self.label,
             "deltas": [d.to_dict() for d in self.deltas],
             "created_at": self.created_at,
         }
+        if self.files is not None:
+            d["files"] = self.files
+        return d
 
 
 def compute_delta(old_content: str, new_content: str, path: str) -> FileDelta:

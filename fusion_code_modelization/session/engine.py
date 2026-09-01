@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 from fusion_code_modelization.core.client import MLXClient
@@ -14,11 +15,21 @@ from .store import SessionStore
 
 logger = logging.getLogger(__name__)
 
+_MAX_CACHED_CLIENTS = 32
+_MAX_HISTORY_MESSAGES = 40
+
 
 class SessionEngine:
     def __init__(self, store: SessionStore | None = None):
         self._store = store or SessionStore()
-        self._clients: dict[str, MLXClient] = {}
+        self._clients: OrderedDict[str, MLXClient] = OrderedDict()
+
+    def _cache_client(self, session_id: str, client: MLXClient) -> None:
+        self._clients[session_id] = client
+        self._clients.move_to_end(session_id)
+        while len(self._clients) > _MAX_CACHED_CLIENTS:
+            old_sid, old_client = self._clients.popitem(last=False)
+            logger.debug("evicted cached client for session %s", old_sid)
 
     def create_session(
         self,
@@ -50,12 +61,15 @@ class SessionEngine:
             updated_at=now,
         )
         self._store.save(session)
-        self._clients[session_id] = MLXClient(
-            ModelConfig(
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+        self._cache_client(
+            session_id,
+            MLXClient(
+                ModelConfig(
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            ),
         )
         logger.info("Session created: %s (%s)", session_id, config.name)
         return session
@@ -176,12 +190,19 @@ class SessionEngine:
                     max_tokens=session.config.max_tokens,
                 )
             )
-            self._clients[session_id] = client
+            self._cache_client(session_id, client)
+        else:
+            self._clients.move_to_end(session_id)
 
         emit_start("chat", f"session={session_id}", progress_callback)
         session.add_message("user", prompt)
+        history = (
+            session.messages[-_MAX_HISTORY_MESSAGES:]
+            if len(session.messages) > _MAX_HISTORY_MESSAGES
+            else session.messages
+        )
         result = await client.chat(
-            messages=[{"role": m.role, "content": m.content} for m in session.messages],
+            messages=[{"role": m.role, "content": m.content} for m in history],
             **kwargs,
         )
         if result["status"] == "completed":
@@ -216,14 +237,24 @@ class SessionEngine:
         self._store.save(session)
 
         scheduler = ClusterScheduler()
-        dispatches = []
         for node_id in nodes:
             node = scheduler._nodes.get(node_id)
             if not node:
-                node = NodeInfo(node_id=node_id)
-                scheduler.register_node(node)
-            task = await scheduler.dispatch_task(session_id, node_id, description or session.name)
-            dispatches.append(task.to_dict())
+                scheduler.register_node(NodeInfo(node_id=node_id))
+
+        import asyncio
+
+        tasks = await asyncio.gather(
+            *(scheduler.dispatch_task(session_id, nid, description or session.name) for nid in nodes),
+            return_exceptions=True,
+        )
+        dispatches = []
+        for t in tasks:
+            if isinstance(t, Exception):
+                logger.error("dispatch failed: %s", t)
+                dispatches.append({"status": "failed", "error": str(t)})
+            else:
+                dispatches.append(t.to_dict())  # type: ignore[union-attr]
         logger.info("Distributed session %s to %d nodes", session_id, len(nodes))
         return {"status": "completed", "session_id": session_id, "dispatches": dispatches}
 

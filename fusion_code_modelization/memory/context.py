@@ -41,7 +41,10 @@ class MemoryContext:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
             )
-            return summary
+            if summary.get("status") == "completed":
+                return str(summary.get("content", ""))
+            logger.warning("memory summarize returned failed status: %s", summary.get("error"))
+            return content
         except Exception as e:
             logger.error("Memory summarize failed: %s", e)
             return content
@@ -61,7 +64,10 @@ class MemoryContext:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
             )
-            return response
+            if response.get("status") == "completed":
+                return str(response.get("content", ""))
+            logger.warning("memory query returned failed status: %s", response.get("error"))
+            return content
         except Exception as e:
             logger.error("Memory query failed: %s", e)
             return f"Error: {e}"

@@ -161,7 +161,11 @@ class TestMemoryContext:
     @pytest.mark.asyncio
     async def test_summarize(self, ctx, project_dir):
         ctx.save(MemoryTier.PROJECT, "# Rules\nUse Python 3.12")
-        with patch.object(ctx._client, "chat", new=AsyncMock(return_value="Use Python 3.12, no docstrings")):
+        with patch.object(
+            ctx._client,
+            "chat",
+            new=AsyncMock(return_value={"status": "completed", "content": "Use Python 3.12, no docstrings"}),
+        ):
             summary = await ctx.summarize()
         assert "Python 3.12" in summary
 
@@ -173,7 +177,11 @@ class TestMemoryContext:
     @pytest.mark.asyncio
     async def test_query(self, ctx, project_dir):
         ctx.save(MemoryTier.PROJECT, "# Rules\nAlways use logging")
-        with patch.object(ctx._client, "chat", new=AsyncMock(return_value="You should always use logging")):
+        with patch.object(
+            ctx._client,
+            "chat",
+            new=AsyncMock(return_value={"status": "completed", "content": "You should always use logging"}),
+        ):
             answer = await ctx.query("What are the rules?")
         assert "logging" in answer
 

@@ -31,13 +31,16 @@ class CacheEntry:
 
 
 class OfflineCache:
-    def __init__(self, cache_dir: str | Path | None = None) -> None:
+    def __init__(self, cache_dir: str | Path | None = None, default_ttl: float = 86400.0) -> None:
         self.cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self.cache_dir / "index.json"
         self._entries: dict[str, CacheEntry] = {}
+        self.default_ttl = default_ttl
+        self.hits = 0
+        self.misses = 0
         self._load_index()
-        logger.info("OfflineCache initialized, cache_dir=%s", self.cache_dir)
+        logger.info("OfflineCache initialized, cache_dir=%s ttl=%.0fs", self.cache_dir, default_ttl)
 
     def cache_model(self, model_id: str, source_path: str | Path | None = None) -> dict:
         model_dir = self.cache_dir / "models" / model_id
@@ -80,6 +83,39 @@ class OfflineCache:
         self._save_index()
         logger.info("Cached plugin: %s (%.1f MB)", plugin_id, size_mb)
         return {"status": "completed", "plugin_id": plugin_id, "path": str(plugin_dir), "size_mb": size_mb}
+
+    def get(self, resource_type: str, resource_id: str, ttl: float | None = None) -> dict | None:
+        key = f"{resource_type}:{resource_id}"
+        entry = self._entries.get(key)
+        if entry is None:
+            self.misses += 1
+            logger.debug("cache miss: %s", key)
+            return None
+        effective_ttl = self.default_ttl if ttl is None else ttl
+        if effective_ttl > 0 and (time.time() - entry.cached_at) > effective_ttl:
+            del self._entries[key]
+            self._save_index()
+            self.misses += 1
+            logger.info("cache expired: %s (age=%.0fs)", key, time.time() - entry.cached_at)
+            return None
+        if not entry.path.exists():
+            del self._entries[key]
+            self._save_index()
+            self.misses += 1
+            logger.warning("cache entry path missing: %s", entry.path)
+            return None
+        self.hits += 1
+        logger.debug("cache hit: %s", key)
+        return entry.to_dict()
+
+    def stats(self) -> dict:
+        total = self.hits + self.misses
+        return {
+            "entries": len(self._entries),
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": round(self.hits / total, 4) if total else 0.0,
+        }
 
     def list_cached(self) -> list[dict]:
         return [e.to_dict() for e in self._entries.values()]

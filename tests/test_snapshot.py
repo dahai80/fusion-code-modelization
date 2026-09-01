@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -245,3 +246,63 @@ class TestSnapshotManager:
         (project_dir / "temp.py").unlink()
         result = manager.verify_snapshot(snap.snapshot_id)
         assert any("missing" in issue for issue in result["issues"])
+
+    def test_restore_rolls_back_on_failure(self, manager, project_dir, monkeypatch):
+        snap = manager.create_snapshot(label="baseline")
+        (project_dir / "main.py").write_text("print('changed')\n", encoding="utf-8")
+        original = manager._reconstruct_from_diff
+        calls = {"n": 0}
+
+        def boom(delta):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise RuntimeError("simulated mid-restore failure")
+            return original(delta)
+
+        monkeypatch.setattr(manager, "_reconstruct_from_diff", boom)
+        result = manager.restore_snapshot(snap.snapshot_id)
+        assert result is False
+        assert (project_dir / "main.py").read_text(encoding="utf-8") == "print('changed')\n"
+
+    def test_restore_succeeds_cleans_rollback(self, manager, project_dir):
+        snap = manager.create_snapshot(label="baseline")
+        (project_dir / "main.py").write_text("print('changed')\n", encoding="utf-8")
+        assert manager.restore_snapshot(snap.snapshot_id) is True
+        rollback_files = list(manager.snapshot_dir.glob("rollback_*.json"))
+        assert rollback_files == []
+
+    def test_collect_files_skips_symlinks(self, tmp_path):
+        if os.name == "nt":
+            pytest.skip("symlink test not supported on windows")
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "real.py").write_text("x=1\n", encoding="utf-8")
+        target = tmp_path / "secret.txt"
+        target.write_text("TOPSECRET\n", encoding="utf-8")
+        (proj / "link.py").symlink_to(target)
+        snap_dir = tmp_path / "snaps"
+        mgr = SnapshotManager(proj, snapshot_dir=snap_dir)
+        snap = mgr.create_snapshot(label="with_link")
+        paths = [d.path for d in snap.deltas]
+        assert "real.py" in paths
+        assert "link.py" not in paths
+
+    def test_restore_refuses_symlink_write(self, tmp_path):
+        if os.name == "nt":
+            pytest.skip("symlink test not supported on windows")
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "main.py").write_text("orig\n", encoding="utf-8")
+        snap_dir = tmp_path / "snaps"
+        mgr = SnapshotManager(proj, snapshot_dir=snap_dir)
+        snap = mgr.create_snapshot(label="base")
+        outside = tmp_path / "outside.txt"
+        outside.write_text("payload\n", encoding="utf-8")
+        (proj / "main.py").unlink()
+        (proj / "main.py").symlink_to(outside)
+        assert mgr.restore_snapshot(snap.snapshot_id) in (True, False)
+        assert outside.read_text(encoding="utf-8") == "payload\n"
+
+    def test_load_snapshot_rejects_traversal_id(self, manager):
+        assert manager.load_snapshot("../../../etc/passwd") is None
+        assert manager.delete_snapshot("..%2f..%2f") is False

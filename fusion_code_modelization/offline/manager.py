@@ -94,14 +94,25 @@ class OfflineManager:
         manifest.pop("checksum", "")
         manifest["checksum"] = self._compute_checksum(manifest)
         (pkg_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-        logger.info("Prepared offline package: %s at %s", name, pkg_dir)
+        size_mb = self._dir_size_mb(pkg_dir)
+        logger.info("Prepared offline package: %s at %s (%.1f MB)", name, pkg_dir, size_mb)
         return {
             "status": "completed",
             "package_path": str(pkg_dir),
             "package_id": pkg.package_id,
+            "mode": pkg.mode.value,
+            "size_mb": size_mb,
             "model_count": len(model_ids),
             "plugin_count": len(plugin_ids),
         }
+
+    @staticmethod
+    def _dir_size_mb(path: Path) -> float:
+        total = 0
+        for p in path.rglob("*"):
+            if p.is_file():
+                total += p.stat().st_size
+        return round(total / (1024 * 1024), 1)
 
     def restore_from_package(self, package_dir: str | Path) -> dict:
         pkg_path = Path(package_dir)

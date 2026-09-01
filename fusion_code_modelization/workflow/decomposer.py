@@ -97,11 +97,29 @@ class TaskDecomposer:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        subtasks = self._parse_subtasks(response)
+        body = self._content(response)
+        if not body:
+            logger.warning(
+                "decompose empty content: %s", response.get("error") if isinstance(response, dict) else "non-dict"
+            )
+            return WorkflowPlan(
+                plan_id=f"plan_{abs(hash(goal)) % 100000:05d}", goal=goal, subtasks=[], template=template
+            )
+        subtasks = self._parse_subtasks(body)
         plan_id = f"plan_{abs(hash(goal)) % 100000:05d}"
         plan = WorkflowPlan(plan_id=plan_id, goal=goal, subtasks=subtasks, template=template)
         logger.info("Decomposed into %d subtasks: %s", len(subtasks), [t.task_id for t in subtasks])
         return plan
+
+    @staticmethod
+    def _content(response: Any) -> str:
+        if isinstance(response, dict):
+            if response.get("status") != "completed":
+                return ""
+            return str(response.get("content", ""))
+        if isinstance(response, str):
+            return response
+        return ""
 
     def _parse_subtasks(self, response: str) -> list[SubTask]:
         try:
@@ -119,7 +137,7 @@ class TaskDecomposer:
                     )
                 )
             return tasks
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.error("Failed to parse decompose response: %s", e)
             return []
 

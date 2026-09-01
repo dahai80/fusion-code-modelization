@@ -6,9 +6,43 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from fusion_code_modelization.pipeline import AuditLog, PipelineIntegrator, PriorityScorer
 
 logger = logging.getLogger(__name__)
+
+
+class TestSafeWriter:
+    def test_write_text_within_root(self, tmp_path):
+        from fusion_code_modelization.core.safe_writer import SafeWriter
+
+        writer = SafeWriter(tmp_path)
+        written = writer.write_text("sub/file.txt", "hello")
+        assert written.read_text(encoding="utf-8") == "hello"
+
+    def test_write_text_traversal_blocked(self, tmp_path):
+        from fusion_code_modelization.core.safe_writer import SafeWriter, UnsafePathError
+
+        writer = SafeWriter(tmp_path)
+        with pytest.raises(UnsafePathError):
+            writer.write_text("../../escape.txt", "evil")
+
+    def test_unlink_traversal_blocked(self, tmp_path):
+        from fusion_code_modelization.core.safe_writer import SafeWriter, UnsafePathError
+
+        writer = SafeWriter(tmp_path)
+        with pytest.raises(UnsafePathError):
+            writer.unlink("../escape.txt")
+
+    def test_emits_pre_write_with_registry(self, tmp_path):
+        from fusion_code_modelization.core.hooks import default_registry
+        from fusion_code_modelization.core.safe_writer import SafeWriter
+
+        registry = default_registry()
+        writer = SafeWriter(tmp_path, registry=registry)
+        writer.write_text("ok.txt", "data")
+        assert (tmp_path / "ok.txt").exists()
 
 
 class TestAuditLog:
@@ -89,11 +123,10 @@ class TestPipelineIntegrator:
     @patch("subprocess.run")
     def test_create_pr_with_delete(self, mock_run):
         mock_run.return_value = MagicMock()
-        integrator = PipelineIntegrator(repo_path="/tmp/test-repo")
         with tempfile.TemporaryDirectory() as tmpdir:
+            integrator = PipelineIntegrator(repo_path=tmpdir)
             del_file = Path(tmpdir) / "old_file.py"
             del_file.write_text("old content", encoding="utf-8")
-            integrator.repo_path = Path(tmpdir)
             changes = [{"path": "old_file.py", "action": "delete"}]
             result = integrator.create_pr("cleanup", "Remove old", "Cleanup", changes)
             assert result["status"] == "created"
@@ -163,15 +196,17 @@ class TestPipelineIntegrator:
     @patch("subprocess.run")
     def test_export_audit_log_with_file(self, mock_run):
         mock_run.return_value = MagicMock()
-        integrator = PipelineIntegrator(repo_path="/tmp/test-repo")
-        integrator.create_pr("b1", "t1", "d1", [])
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            output_path = f.name
-        integrator.export_audit_log(output_path=output_path)
-        data = json.loads(Path(output_path).read_text(encoding="utf-8"))
-        assert len(data) == 1
-        assert data[0]["action"] == "create_pr"
-        Path(output_path).unlink()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            integrator = PipelineIntegrator(repo_path=tmpdir)
+            integrator.create_pr("b1", "t1", "d1", [])
+            output_path = "audit_export.json"
+            integrator.export_audit_log(output_path=output_path)
+            written = Path(tmpdir) / "audit_export.json"
+            assert written.exists()
+            data = json.loads(written.read_text(encoding="utf-8"))
+            assert len(data) == 1
+            assert data[0]["action"] == "create_pr"
+            written.unlink()
 
     @patch("subprocess.run")
     def test_create_pr_writes_files(self, mock_run):
@@ -185,6 +220,53 @@ class TestPipelineIntegrator:
             written = Path(tmpdir) / "src" / "new_file.py"
             assert written.exists()
             assert written.read_text(encoding="utf-8") == "print('new')"
+
+    @patch("subprocess.run")
+    def test_create_pr_blocks_path_traversal(self, mock_run):
+        mock_run.return_value = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            integrator = PipelineIntegrator(repo_path=tmpdir)
+            changes = [{"path": "../../etc/passwd", "content": "evil"}]
+            result = integrator.create_pr("evil", "Escape", "Bad", changes)
+            assert result["status"] == "error"
+            assert "escapes project_root" in result["error"]
+
+    def test_create_pr_blocks_dangerous_cmd_via_pre_exec(self):
+        from fusion_code_modelization.core.hooks import default_registry
+        from fusion_code_modelization.core.safe_writer import UnsafePathError
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hooks = default_registry()
+            integrator = PipelineIntegrator(repo_path=tmpdir, hooks=hooks)
+            with pytest.raises(UnsafePathError, match="pre_exec denied"):
+                integrator._run(["rm", "-rf", "/"])
+
+    @patch("subprocess.run")
+    def test_run_emits_post_exec_hook(self, mock_run):
+        from fusion_code_modelization.core.hooks import (
+            HookAction,
+            HookDecision,
+            HookEvent,
+            HookHandler,
+            HookRegistry,
+        )
+
+        mock_run.return_value = MagicMock(returncode=0)
+        seen: list[dict] = []
+
+        def capture(payload: dict) -> HookDecision:
+            seen.append(payload)
+            return HookDecision(action=HookAction.ALLOW, reason="")
+
+        registry = HookRegistry()
+        registry.register(
+            HookHandler(name="capture", event=HookEvent.POST_EXEC, execute=capture, description="capture")
+        )
+        registry.enabled = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            integrator = PipelineIntegrator(repo_path=tmpdir, hooks=registry)
+            integrator._run(["git", "status"])
+        assert any(p["event"] == "post_exec" and p["succeeded"] for p in seen)
 
 
 class TestPriorityScorer:

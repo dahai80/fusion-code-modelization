@@ -11,6 +11,26 @@ from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfi
 
 logger = logging.getLogger(__name__)
 
+_MAX_SCAN_FILE_BYTES = 5 * 1024 * 1024
+_ENTRY_POINT_PATTERNS = (
+    "__main__",
+    "__init__",
+    "manage.py",
+    "app.py",
+    "main.py",
+    "conftest.py",
+    "setup.py",
+)
+
+
+def _is_entry_point(node_id: str) -> bool:
+    base = Path(node_id).stem
+    if base in ("__main__", "__init__", "main", "app", "manage", "conftest", "setup"):
+        return True
+    if node_id.startswith("tests/") or "/tests/" in node_id or base.startswith("test_"):
+        return True
+    return any(node_id.endswith(pat) for pat in _ENTRY_POINT_PATTERNS)
+
 
 @dataclass
 class DependencyGraph:
@@ -36,8 +56,33 @@ class DependencyAnalyzer:
             return DependencyGraph()
 
         graph = DependencyGraph()
+        ignore_dirs = {
+            ".git",
+            ".fusion",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            ".mypy_cache",
+            "build",
+            "dist",
+            "target",
+            ".pytest_cache",
+            ".ruff_cache",
+        }
+        skipped_large = 0
         for f in root.rglob("*"):
+            if any(part in ignore_dirs for part in f.parts):
+                continue
+            if f.is_symlink() and root not in f.resolve().parents:
+                logger.warning("skipping symlink escaping root: %s", f)
+                continue
             if not f.is_file():
+                continue
+            try:
+                if f.stat().st_size > _MAX_SCAN_FILE_BYTES:
+                    skipped_large += 1
+                    continue
+            except OSError:
                 continue
             ext = f.suffix.lower()
             lang = self._detect_language(ext)
@@ -53,14 +98,19 @@ class DependencyAnalyzer:
             }
             for dep in deps:
                 graph.edges.append({"source": rel_path, "target": dep, "type": "import"})
+        if skipped_large:
+            logger.warning("skipped %d files exceeding %d bytes during scan", skipped_large, _MAX_SCAN_FILE_BYTES)
         return graph
 
     def identify_dead_code(self, graph: DependencyGraph) -> list[str]:
         all_targets = {e["target"] for e in graph.edges}
         dead = []
         for node_id in graph.nodes:
-            if node_id not in all_targets:
-                dead.append(node_id)
+            if node_id in all_targets:
+                continue
+            if _is_entry_point(node_id):
+                continue
+            dead.append(node_id)
         return dead
 
     def estimate_tech_debt(self, graph: DependencyGraph) -> dict[str, Any]:
@@ -80,7 +130,7 @@ class DependencyAnalyzer:
                     "content": (
                         f"Analyze this {language} code. Identify: 1) purpose, "
                         f"2) inputs/outputs, 3) dependencies, 4) potential issues. "
-                        f"Return as JSON.\n\n```{language}\n{code[:3000]}\n```"
+                        f"Return as JSON.\n\n```{language}\n{code}\n```"
                     ),
                 }
             ],
@@ -93,11 +143,14 @@ class DependencyAnalyzer:
             content = result["content"]
             if content.startswith("{"):
                 try:
-                    return json.loads(content)
+                    parsed = json.loads(content)
                 except json.JSONDecodeError:
-                    pass
+                    parsed = None
+                if isinstance(parsed, dict):
+                    return parsed
+                logger.warning("LLM returned non-object JSON, falling back to text analysis")
             return {"analysis": content}
-        return {"error": result.get("error", "Unknown"), "language": language}
+        return {"status": "failed", "error": result.get("error", "Unknown"), "language": language}
 
     @staticmethod
     def _detect_language(ext: str) -> str:
@@ -154,7 +207,7 @@ class DependencyAnalyzer:
             "",
             "## Language Distribution",
         ]
-        langs = {}
+        langs: dict[str, int] = {}
         for n in graph.nodes.values():
             lang = n.get("language", "unknown")
             langs[lang] = langs.get(lang, 0) + 1
