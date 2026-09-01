@@ -349,3 +349,34 @@ class TestRunnerLoopback:
         assert _is_loopback("localhost") is True
         assert _is_loopback("::1") is True
         assert _is_loopback("0.0.0.0") is False
+
+
+class TestServerGuards:
+    def test_oversized_body_returns_413(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            big = "x" * (2 * 1024 * 1024)
+            resp = client.post(
+                "/api/sessions",
+                json={"name": big},
+                headers={"Content-Length": str(len(big) + 20)},
+            )
+            assert resp.status_code == 413
+
+    def test_misdirected_host_returns_421(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            resp = client.get("/api/sessions", headers={"Host": "evil.example.com"})
+            assert resp.status_code == 421
+
+    def test_cors_rejected_origin_null(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            resp = client.get(
+                "/api/sessions",
+                headers={"Origin": "https://evil.example.com"},
+            )
+            assert resp.headers.get("Access-Control-Allow-Origin") == "null"

@@ -132,7 +132,7 @@ class MLXClient:
                         if token:
                             token_count += 1
                             yield token
-                    except Exception:
+                    except Exception:  # nosec B112 - skip malformed/keepalive SSE chunks
                         continue
         except Exception as e:
             logger.error("chat_stream error: %s", type(e).__name__, exc_info=True)

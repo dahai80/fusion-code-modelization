@@ -219,15 +219,18 @@ class SnapshotManager:
         if not rollback or not getattr(rollback, "files", None):
             logger.error("rollback snapshot %s missing files, manual recovery needed", rollback_id)
             return
-        assert rollback.files is not None
+        rollback_files = rollback.files
+        if rollback_files is None:
+            logger.error("rollback snapshot %s files resolved None", rollback_id)
+            return
         try:
             current_files = self._collect_files()
             for rel in current_files:
-                if rel not in rollback.files:
+                if rel not in rollback_files:
                     p = self._writer.resolve_within(rel)
                     if p.exists():
                         p.unlink()
-            for rel, content in rollback.files.items():
+            for rel, content in rollback_files.items():
                 target = self._writer.resolve_within(rel)
                 self._safe_write(target, content)
             logger.info("rollback complete from %s", rollback_id)

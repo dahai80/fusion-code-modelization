@@ -171,7 +171,28 @@ def create_app(
     logger.info("server auth enabled=%s", auth_enabled)
 
     @app.middleware("http")
+    async def auth_and_rate_limit(request: Request, call_next):
+        from fastapi.responses import JSONResponse
+
+        path = request.url.path
+        client_id = request.client.host if request.client else "unknown"
+        if not limiter.allow(client_id):
+            logger.warning("rate limit exceeded for %s on %s", client_id, path)
+            return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})
+        if path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
+            return await call_next(request)
+        if auth_enabled:
+            header = request.headers.get("Authorization", "")
+            token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+            if not token or token != expected_key:
+                logger.warning("auth rejected for %s on %s", client_id, path)
+                return JSONResponse(status_code=401, content={"detail": "invalid or missing bearer token"})
+        return await call_next(request)
+
+    @app.middleware("http")
     async def host_guard(request: Request, call_next):
+        # Added last → runs first (outermost): reject oversized bodies and
+        # misdirected hosts BEFORE spending auth/rate-limit budget on them.
         from fastapi.responses import JSONResponse
 
         cl = request.headers.get("content-length", "")
@@ -194,25 +215,6 @@ def create_app(
         )
         resp.headers["Access-Control-Allow-Credentials"] = "true"
         return resp
-
-    @app.middleware("http")
-    async def auth_and_rate_limit(request: Request, call_next):
-        from fastapi.responses import JSONResponse
-
-        path = request.url.path
-        client_id = request.client.host if request.client else "unknown"
-        if not limiter.allow(client_id):
-            logger.warning("rate limit exceeded for %s on %s", client_id, path)
-            return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})
-        if path in _PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
-            return await call_next(request)
-        if auth_enabled:
-            header = request.headers.get("Authorization", "")
-            token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
-            if not token or token != expected_key:
-                logger.warning("auth rejected for %s on %s", client_id, path)
-                return JSONResponse(status_code=401, content={"detail": "invalid or missing bearer token"})
-        return await call_next(request)
 
     @app.get("/health")
     async def health(request: Request) -> JSONResponse:

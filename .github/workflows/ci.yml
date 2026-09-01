@@ -25,7 +25,9 @@ jobs:
                   python -m pip install --upgrade pip
                   pip install -e ".[test]"
             - name: Verify production install path (.[server])
-              run: pip install -e ".[server]"
+              run: |
+                  pip install -e ".[server]"
+                  python -c "import fusion_code_modelization; from fusion_code_modelization.server.app import create_app; create_app()"
             - name: Run tests with coverage
               run: pytest tests/ -v --tb=short --cov=fusion_code_modelization --cov-fail-under=82
 

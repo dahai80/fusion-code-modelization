@@ -66,11 +66,11 @@ class PipelineIntegrator:
                 logger.error("POST_EXEC hook %s raised: %s", handler.name, e)
 
     def _run(self, command: list[str]) -> Any:
-        import subprocess
+        import subprocess  # nosec B404 - subprocess gated by PRE_EXEC hook below
 
         if not self._check_exec(command):
             raise UnsafePathError(f"pre_exec denied: {' '.join(command)}")
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - command list (no shell), PRE_EXEC-hook-gated
             command,
             cwd=self.repo_path,
             capture_output=True,
