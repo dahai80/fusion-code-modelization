@@ -6,8 +6,10 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
+from fusion_code_modelization.core.hooks import HookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,76 @@ class CodeTranspiler:
                     "target_lang": target_lang,
                 },
             }
+
+    async def transpile_with_loop(
+        self,
+        code: str,
+        source_lang: str,
+        target_lang: str,
+        preserve_logic: bool = True,
+        max_iter: int = 5,
+        hooks: HookRegistry | None = None,
+    ) -> dict[str, Any]:
+        if source_lang == target_lang:
+            return {"status": "skipped", "code": code, "message": "Same language"}
+
+        async def execute(produced: str) -> LoopToolResult:
+            ver = await self.verify(code, produced, target_lang)
+            passed = bool(ver.get("verified"))
+            return LoopToolResult(
+                passed=passed,
+                output=str(ver.get("details", ""))[:500],
+                error="" if passed else "logic_mismatch",
+            )
+
+        verify_tool = LoopTool(name="verify_logic", execute=execute, description="equivalence verify")
+        loop = AgentLoop(
+            client=self._client, tools=[verify_tool], max_iter=max_iter, extract_language=target_lang, hooks=hooks
+        )
+
+        def build_prompt(ctx: str, feedback: str | None) -> str:
+            instruction = (
+                f"Convert the following {source_lang} code to {target_lang}. "
+                f"Preserve the exact business logic. "
+                f"Use idiomatic {target_lang} patterns and conventions. "
+                f"Add comments explaining any non-obvious translations."
+            )
+            if preserve_logic:
+                instruction += " CRITICAL: The business logic must be 100% preserved."
+            prompt = f"{instruction}\n\n```{source_lang}\n{code}\n```\n\n```{target_lang}"
+            if feedback:
+                prompt += (
+                    f"\n\nPrevious translation failed logic verification: {feedback}. "
+                    "Fix the logic mismatch and output the corrected code only."
+                )
+            return prompt
+
+        logger.info("transpile_with_loop start: %s->%s max_iter=%d", source_lang, target_lang, max_iter)
+        loop_result = await loop.run(
+            objective=f"transpile {source_lang}->{target_lang} preserving logic",
+            build_prompt=build_prompt,
+            extract=None,
+            verify_tool="verify_logic",
+        )
+        if loop_result["status"] == "completed":
+            produced = loop_result["result"]
+            return {
+                "status": "completed",
+                "code": produced,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "original_size": len(code),
+                "transpiled_size": len(produced),
+                "iterations": loop_result["iterations"],
+            }
+        return {
+            "status": "failed",
+            "error": loop_result.get("last_error", "max_iter_reached"),
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "iterations": loop_result["iterations"],
+            "partial": loop_result.get("result", ""),
+        }
 
     async def verify(self, original: str, transpiled: str, language: str) -> dict[str, Any]:
         result = await self._client.chat(

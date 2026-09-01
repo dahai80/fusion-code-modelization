@@ -12,8 +12,9 @@ import sys
 from pathlib import Path
 
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT, GATEWAY_PORT
+from fusion_code_modelization.core.hooks import default_registry
 
-VERSION = "0.6.5"
+VERSION = "0.7.0"
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -32,6 +33,7 @@ def main():
     parser.add_argument("--json", dest="json_output", action="store_true", help="Output results as JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress non-error output")
+    parser.add_argument("--no-hooks", action="store_true", help="Disable Hook interception layer")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -47,6 +49,8 @@ def main():
     t.add_argument("--to", dest="target_lang", required=True, help="Target language")
     t.add_argument("--output", default="", help="Output file path")
     t.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
+    t.add_argument("--loop", action="store_true", help="Enable Agent Loop self-heal (verify + retry on failure)")
+    t.add_argument("--max-iter", type=int, default=5, help="Max loop iterations (default 5)")
 
     # refactor
     r = sub.add_parser("refactor", help="Refactor code incrementally")
@@ -54,6 +58,8 @@ def main():
     r.add_argument("--instructions", default="", help="Refactoring instructions")
     r.add_argument("--output", default="", help="Output file path")
     r.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
+    r.add_argument("--loop", action="store_true", help="Enable Agent Loop self-heal (verify + retry on failure)")
+    r.add_argument("--max-iter", type=int, default=5, help="Max loop iterations (default 5)")
 
     # test-gen
     tg = sub.add_parser("test-gen", help="Generate unit tests")
@@ -61,6 +67,8 @@ def main():
     tg.add_argument("--language", default="", help="Programming language")
     tg.add_argument("--output", default="", help="Output file path")
     tg.add_argument("--stream", action="store_true", help="Stream LLM output in real time")
+    tg.add_argument("--loop", action="store_true", help="Enable Agent Loop self-heal (syntax check + retry)")
+    tg.add_argument("--max-iter", type=int, default=5, help="Max loop iterations (default 5)")
 
     # security
     s = sub.add_parser("security", help="Scan for security vulnerabilities")
@@ -300,7 +308,22 @@ async def _cmd_transpile(args):
     code = Path(args.file).read_text(encoding="utf-8", errors="replace")
     transpiler = CodeTranspiler(mlx_url=args.mlx_url)
     print(f"Transpiling {args.file} from {args.source_lang} to {args.target_lang}...")
-    if getattr(args, "stream", False):
+    if getattr(args, "loop", False):
+        hooks = None if args.no_hooks else default_registry()
+        result = await transpiler.transpile_with_loop(
+            code, args.source_lang, args.target_lang, max_iter=args.max_iter, hooks=hooks
+        )
+        if result["status"] == "completed":
+            output = result["code"]
+            print(f"[loop] converged in {result.get('iterations', 0)} iterations")
+            if args.output:
+                Path(args.output).write_text(output, encoding="utf-8")
+                print(f"Transpiled code saved to {args.output}")
+            else:
+                print(output)
+        else:
+            print(f"Error: {result.get('error', 'Unknown')} (iterations={result.get('iterations', 0)})")
+    elif getattr(args, "stream", False):
         result = None
         async for chunk in transpiler.transpile_stream(code, args.source_lang, args.target_lang):
             if chunk["type"] == "token":
@@ -334,7 +357,21 @@ async def _cmd_refactor(args):
     refactorer = IncrementalRefactorer(mlx_url=args.mlx_url)
     lang = Path(args.file).suffix[1:] or "unknown"
     print(f"Refactoring {args.file}...")
-    if getattr(args, "stream", False):
+    if getattr(args, "loop", False):
+        hooks = None if args.no_hooks else default_registry()
+        result = await refactorer.refactor_with_loop(code, lang, args.instructions, max_iter=args.max_iter, hooks=hooks)
+        if result["status"] == "completed":
+            print(f"[loop] converged in {result.get('iterations', 0)} iterations")
+            if args.output:
+                Path(args.output).write_text(result["result"], encoding="utf-8")
+                print(f"Refactored code saved to {args.output}")
+            else:
+                print(result["result"])
+        else:
+            print(
+                f"Error: {result.get('last_error', result.get('error', 'Unknown'))} (iterations={result.get('iterations', 0)})"
+            )
+    elif getattr(args, "stream", False):
         result = None
         async for chunk in refactorer.refactor_stream(code, lang, args.instructions):
             if chunk["type"] == "token":
@@ -367,7 +404,21 @@ async def _cmd_test_gen(args):
     lang = args.language or Path(args.file).suffix[1:] or "unknown"
     generator = UnitTestGenerator(mlx_url=args.mlx_url)
     print(f"Generating tests for {args.file}...")
-    if getattr(args, "stream", False):
+    if getattr(args, "loop", False):
+        hooks = None if args.no_hooks else default_registry()
+        result = await generator.generate_with_loop(code, lang, max_iter=args.max_iter, hooks=hooks)
+        if result["status"] == "completed":
+            print(f"[loop] converged in {result.get('iterations', 0)} iterations")
+            if args.output:
+                Path(args.output).write_text(result["tests"], encoding="utf-8")
+                print(f"Tests saved to {args.output}")
+            else:
+                print(result["tests"])
+        else:
+            print(
+                f"Error: {result.get('last_error', result.get('error', 'Unknown'))} (iterations={result.get('iterations', 0)})"
+            )
+    elif getattr(args, "stream", False):
         result = None
         async for chunk in generator.generate_unit_tests_stream(code, lang):
             if chunk["type"] == "token":

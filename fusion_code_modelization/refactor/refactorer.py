@@ -6,10 +6,26 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
+from fusion_code_modelization.core.hooks import HookRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def _verify_equivalence_tool(client: MLXClient, original: str, language: str) -> LoopTool:
+    async def execute(produced: str) -> LoopToolResult:
+        ver = await client.simple_chat(
+            f"Do these two {language} code snippets produce the same outputs for the same inputs? "
+            f"Answer YES or NO then explain.\n\nORIGINAL:\n{original[:2000]}\n\nREFACTORED:\n{produced[:2000]}",
+            max_tokens=512,
+            temperature=0.0,
+        )
+        passed = any(w in ver.upper()[:20] for w in ["YES", "SAME", "IDENTICAL"])
+        return LoopToolResult(passed=passed, output=ver[:500], error="" if passed else "equivalence_failed")
+
+    return LoopTool(name="verify_equivalence", execute=execute, description="dual_run equivalence check")
 
 
 class IncrementalRefactorer:
@@ -93,6 +109,37 @@ class IncrementalRefactorer:
         except Exception as e:
             logger.error("refactor_stream failed: %s", e)
             yield {"type": "done", "result": {"status": "failed", "error": str(e)}}
+
+    async def refactor_with_loop(
+        self,
+        code: str,
+        language: str,
+        instructions: str = "",
+        max_iter: int = 5,
+        hooks: HookRegistry | None = None,
+    ) -> dict[str, Any]:
+        verify = await _verify_equivalence_tool(self._client, code, language)
+        loop = AgentLoop(client=self._client, tools=[verify], max_iter=max_iter, extract_language=language, hooks=hooks)
+
+        def build_prompt(ctx: str, feedback: str | None) -> str:
+            prompt = f"Refactor the following {language} code. Improve code quality without changing business logic.\n"
+            if instructions:
+                prompt += f"Specific instructions: {instructions}\n"
+            prompt += f"\n```{language}\n{code[:4000]}\n```\n\nRefactored code:"
+            if feedback:
+                prompt += (
+                    f"\n\nPrevious attempt failed equivalence verification: {feedback}. "
+                    "Fix the issue and output the corrected refactored code only."
+                )
+            return prompt
+
+        logger.info("refactor_with_loop start: language=%s max_iter=%d", language, max_iter)
+        return await loop.run(
+            objective=f"refactor {language} code preserving behavior",
+            build_prompt=build_prompt,
+            extract=None,
+            verify_tool="verify_equivalence",
+        )
 
     async def dual_run_verify(self, original_code: str, refactored_code: str, language: str) -> dict[str, Any]:
         result = await self._client.chat(

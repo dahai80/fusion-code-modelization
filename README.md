@@ -95,12 +95,18 @@ fusion-code-modelization transpile input.py --from=python --to=java --output=out
 
 # COBOL → Go (with real-time streaming)
 fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --stream
+
+# COBOL → Go with Agent Loop self-heal (verify logic equivalence + auto-retry on failure)
+fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --loop --max-iter=5
 ```
 
 ### Refactor Code Safely
 
 ```bash
 fusion-code-modelization refactor legacy_code.py --instructions="add type hints" --output=refactored.py
+
+# With Agent Loop self-heal (dual-run equivalence verify + auto-retry)
+fusion-code-modelization refactor legacy_code.py --instructions="add type hints" --loop --output=refactored.py
 ```
 
 ### Generate Tests
@@ -167,6 +173,44 @@ fusion-code-modelization refactor src.py --stream
 fusion-code-modelization test-gen src.py --stream
 fusion-code-modelization security src.py --stream
 fusion-code-modelization doc-gen src.py --stream
+```
+
+### Agent Loop (Self-Heal)
+
+`--loop` enables a bounded, fully-traced self-heal loop on `transpile`, `refactor`, and `test-gen`. The
+model decides *how to fix* an output that fails verification — it does **not** pick which tool to run, so
+the tool sequence stays fixed and auditable. Each iteration: build prompt → LLM → extract code → verify
+tool → on failure, feed the error back and retry, up to `--max-iter` (default 5). A JSONL trace is written
+per run.
+
+```bash
+# transpile with logic-equivalence verification
+fusion-code-modelization transpile legacy.cbl --from=cobol --to=go --loop --max-iter=5
+
+# refactor with dual-run equivalence verification
+fusion-code-modelization refactor legacy_code.py --loop
+
+# test-gen with syntax-check verification (python uses compile(); other langs use an LLM check)
+fusion-code-modelization test-gen legacy_code.py --loop
+```
+
+| Flag | Scope | Description |
+|------|-------|-------------|
+| `--loop` | transpile / refactor / test-gen | Enable Agent Loop self-heal (takes precedence over `--stream`) |
+| `--max-iter N` | transpile / refactor / test-gen | Max loop iterations (default 5) |
+
+### Hook Interception Layer
+
+A deterministic interception layer the model cannot bypass. Every LLM response (`POST_LLM`), write
+(`PRE_WRITE`), and tool execution (`PRE_EXEC`) passes through a hook registry that can `allow`, `deny`,
+or `modify` the payload. Built-in guards block path traversal / system dirs, destructive shell commands
+(`rm -rf /`, fork bombs, `mkfs`, …), and redact leaked secrets (AWS keys, `sk-*`, `ghp_*`, private keys).
+Deny/redact decisions delegate to `fusion-core.guard_client` → fusion-guard (UDS JSON-RPC) when available,
+with a regex fallback + `WARNING` log when the guard is unreachable.
+
+```bash
+# Hooks are on by default when --loop is used; disable with the global flag:
+fusion-code-modelization --no-hooks transpile src.py --from=python --to=go --loop
 ```
 
 ### REST API Server
