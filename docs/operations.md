@@ -38,6 +38,85 @@ Production operations guide for the fusion-code-modelization REST API server.
 
 > **Security:** bind loopback only by default. To expose on a LAN, pass `--allow-nonloopback` and **set `FUSION_SERVER_API_KEY`** — unauthenticated non-loopback exposure is rejected.
 
+## Deployment runbook
+
+Step-by-step release procedure. Editable install (`pip install -e`) means source = deployment — no build artifact, no artifact registry. Every release is a `git checkout` + deps sync + restart.
+
+### Pre-flight (before every release)
+
+```bash
+cd /Users/dahai/fusion/fusion-code-modenization
+git fetch origin && git log --oneline HEAD..origin/main    # confirm what's incoming
+gh pr checks <PR>                                           # CI must be all green
+```
+
+- CI: all 5 jobs green (test 3.12/3.13, lint, typecheck, security).
+- `bandit -r fusion_code_modelization/ -ll -ii` → 0 issues locally.
+- Confirm the release commit is tagged or noted in `CHANGELOG.md`.
+
+### Release: standard update
+
+```bash
+# 1. Activate shared venv
+source /Users/dahai/fusion/.venv/bin/activate
+
+# 2. Pull the release commit
+git pull --ff-only origin main
+
+# 3. Sync deps (fusion-core + this package + extras)
+pip install -e fusion-core
+pip install -e ".[test,server]"
+
+# 4. Smoke test before restarting the live server
+pytest tests/ -q                      # all green
+python -c "from fusion_code_modelization.server.app import create_app; create_app()"
+
+# 5. Restart the server
+./start.sh restart
+./start.sh status                     # exit 0 + health probe
+curl -fsS http://127.0.0.1:11459/health | python -m json.tool   # status: ok
+
+# 6. Confirm inference path end-to-end (needs gateway up + model loaded)
+curl -fsS http://127.0.0.1:11432/v1/models | python -m json.tool # model present
+```
+
+### Rollback (release bad)
+
+No DB, no migrations — rollback is a `git checkout` + restart:
+
+```bash
+git log --oneline -10                 # find last-known-good commit
+git checkout <good-commit>
+pip install -e ".[test,server]"       # re-sync if deps changed
+./start.sh restart
+./start.sh status
+curl -fsS http://127.0.0.1:11459/health    # status: ok
+```
+
+If the bad commit changed `pyproject.toml` deps, `pip install` re-syncs to the rolled-back manifest. If it changed `fusion-core`, also `pip install -e fusion-core`.
+
+### First-time production install
+
+```bash
+source /Users/dahai/fusion/.venv/bin/activate          # create via repo root scripts/sync-deps.sh
+pip install -e fusion-core
+pip install -e ".[server]"                             # server extras only for prod
+# set secrets (see Secret management & rotation)
+export FUSION_SERVER_API_KEY="<key>"                   # registered in gateway config.yaml
+./start.sh start
+./start.sh status
+```
+
+### Health-check gate (all releases)
+
+A release is **not complete** until all three pass:
+
+1. `./start.sh status` → exit 0 (process alive).
+2. `GET /health` → `{"status":"ok", "gateway":"ok", "disk":"ok"}`.
+3. `GET /metrics` → counters respond (request rate non-zero if traffic flowing, or zero cleanly if idle).
+
+If any fails, rollback immediately.
+
 ## Monitoring
 
 ### Health (`GET /health`, public)
@@ -65,6 +144,104 @@ In-process counters (reset on restart):
 ```
 
 Scrape periodically for error-rate and latency tracking. No Prometheus export — poll this JSON endpoint.
+
+### Monitoring dashboard
+
+The `/metrics` endpoint exposes JSON counters; there is no built-in UI. Build a dashboard in your existing observability stack (Grafana/Datadog/k9s) by polling `/metrics` at a fixed interval and graphing these series:
+
+| Panel | Query (from `/metrics` JSON) | Alert threshold |
+|---|---|---|
+| Request rate | `chat_total` delta / scrape interval | — |
+| Error rate | `chat_failed` delta / `chat_total` delta | >5% sustained 5 min |
+| Avg latency | `chat_avg_latency_ms` (gauge) | p95 > 5000 ms |
+| Workflow rate | `workflow_total` delta | — |
+| Workflow failures | `workflow_failed` delta | >0 sustained 2 min |
+| Health | `GET /health` → `status` field | `degraded` for >1 min |
+| Gateway reachability | `GET /health` → `gateway` field | != `ok` for >1 min |
+| Disk free | `GET /health` → `disk_free_gb` | <1 GB |
+
+**Scrape config** (cron or sidecar, every 15s):
+
+```bash
+#!/bin/bash
+# /usr/local/bin/fcm-scrape.sh — poll metrics, ship to your sink
+URL="${FCM_URL:-http://127.0.0.1:11459}"
+curl -fsS "$URL/metrics" | your_sink --source fcm
+curl -fsS "$URL/health" | your_sink --source fcm --measurement health
+```
+
+**Alerting rules** (translate to your stack):
+
+1. `health.status == "degraded"` for >1 min → page on-call (gateway or disk down; server cannot serve inference).
+2. `chat_failed / chat_total > 0.05` over 5 min → page (model returning errors or empty content).
+3. `chat_avg_latency_ms > 5000` over 5 min → warn (model overloaded or gateway slow).
+4. `health.disk_free_gb < 1` → warn (free disk before snapshot/workflow persistence fails).
+
+No persistent storage in-process — counters reset on restart. Persist deltas externally; treat restart as a counter reset (gap in rate panels, not a spike).
+
+## Secret management & rotation
+
+This server authenticates clients with a single bearer token (`FUSION_SERVER_API_KEY`, falling back to `FUSION_MLX_API_KEY` then `MLX_API_KEY`). The token must also be registered in **fusion-gateway** `config.yaml` `auth.api_keys` (the gateway uses it to authorize the upstream inference call). One secret, two places that must agree.
+
+### Rotation procedure
+
+Rotate on a schedule (every 90 days), after team turnover, or on suspected leak. Zero-downtime rotation uses the gateway's multi-key list — add the new key before removing the old.
+
+1. **Generate** a new key:
+
+   ```bash
+   NEW_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+   echo "$NEW_KEY"
+   ```
+
+2. **Add** the new key to fusion-gateway (keep the old one present during cutover):
+
+   ```yaml
+   # fusion-gateway config.yaml — auth.api_keys
+   auth:
+     enabled: true
+     api_keys:
+       - key: "<OLD_KEY>"      # keep during cutover
+         allowed_models: ["*"]
+       - key: "<NEW_KEY>"      # add
+         allowed_models: ["*"]
+   ```
+
+   Reload the gateway per its docs (restart or SIGHUP).
+
+3. **Roll clients** to the new key: update each client's `FUSION_SERVER_API_KEY` (or `Authorization: Bearer` header) and restart them. Old key still works, so no client downtime.
+
+4. **Switch the server** to the new key:
+
+   ```bash
+   export FUSION_SERVER_API_KEY="$NEW_KEY"
+   ./start.sh restart
+   ./start.sh status          # confirm health: ok
+   ```
+
+5. **Verify** no client still uses the old key — check server logs for `auth rejected` from lingering clients, or query clients. Confirm via `/metrics` that request rate is steady.
+
+6. **Remove** the old key from the gateway `auth.api_keys`, reload. Old key now rejected.
+
+### Storage
+
+- **Never** commit keys to the repo. Load from environment (systemd `EnvironmentFile=`, launchd `EnvironmentVariables`, or a secrets manager).
+- **systemd unit** example:
+
+  ```ini
+  [Service]
+  EnvironmentFile=/etc/fusion/fcm.env   # chmod 600, owner root
+  ExecStart=/Users/dahai/fusion/.venv/bin/fusion-code-modelization serve
+  ```
+
+  `/etc/fusion/fcm.env`:
+
+  ```sh
+  FUSION_SERVER_API_KEY=<key>
+  FUSION_GATEWAY_URL=http://localhost:11432/v1
+  ```
+
+- **Compromise response**: if a key leaks, skip to step 6 (remove from gateway immediately), generate a fresh key, and rotate — old key is dead before clients update, so expect a brief auth-failure window.
 
 ## Troubleshooting
 
@@ -94,16 +271,7 @@ Session/snapshot state lives under the `SessionStore` base dir (temp dir in test
 
 ## Rollback
 
-This package is installed editable (`pip install -e`) — source is the deployment. To roll back:
-
-```bash
-git log --oneline -10          # find last-known-good commit
-git checkout <commit>          # editable install picks up source immediately
-./start.sh restart
-./start.sh status              # confirm health: ok
-```
-
-No schema migrations, no DB — rollback is a `git checkout` + restart.
+See **Rollback (release bad)** under [Deployment runbook](#deployment-runbook) — editable install means rollback is a `git checkout` + restart, no DB or migrations.
 
 ## Upstream Gaps
 

@@ -425,7 +425,7 @@ ruff format --check .
 - **Correctness**: `MemoryContext.summarize/query` now returns `str` per `chat()` contract (was returning raw dict); stream path gets empty-content guard (issue #14 extended); agent loop fail-fast on unknown tool; retry total_deadline cap
 - **Performance**: snapshot scan size cap + ignore list (build/dist/target); dead-code cache; scheduler state incremental save
 - **Type safety**: mypy 18 → 0 errors; bandit CI gating enforced (no `|| true`); ruff clean
-- **Operations**: single-source `__version__` via importlib.metadata; CLI log timestamp + logger name; live-gateway probe test (`@pytest.mark.live`, skipped by default); README_CN synced 1:1 with README.md; `.[server]` install CI job
+- **Operations**: single-source `__version__` via importlib.metadata; CLI log timestamp + logger name; live-gateway probe test (`@pytest.mark.live`, skipped by default); README_CN synced 1:1 with README.md; `.[server]` install CI job; production operations guide expanded with **deployment runbook**, **secret rotation procedure**, and **monitoring dashboard** (scrape config + alert thresholds) in [`docs/operations.md`](docs/operations.md)
 - **Version**: 0.7.0 → 0.7.1
 
 ### v0.6.5 — Server Port Fix (closes #16)

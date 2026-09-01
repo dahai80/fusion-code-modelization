@@ -404,7 +404,7 @@ ruff format --check .
 - **正确性**：`MemoryContext.summarize/query` 按 `chat()` 契约返回 `str`（原返回原始 dict）；流式路径补空内容 guard（issue #14 延伸）；agent loop 未知工具 fail-fast；重试补 total_deadline 上限
 - **性能**：快照扫描加大小上限 + ignore 列表（build/dist/target）；死代码检测加缓存；调度器状态增量保存
 - **类型安全**：mypy 18 → 0 错误；bandit CI 真门禁（去掉 `|| true`）；ruff 干净
-- **运维**：`__version__` 经 importlib.metadata 单源；CLI 日志加时间戳 + logger 名；live-gateway 探活测试（`@pytest.mark.live`，默认跳过）；README_CN 与 README.md 1:1 同步；新增 `.[server]` 安装 CI job
+- **运维**：`__version__` 经 importlib.metadata 单源；CLI 日志加时间戳 + logger 名；live-gateway 探活测试（`@pytest.mark.live`，默认跳过）；README_CN 与 README.md 1:1 同步；新增 `.[server]` 安装 CI job；生产运维指南扩充**部署 runbook**、**密钥轮换流程**、**监控仪表板**（采集配置 + 告警阈值），见 [`docs/operations.md`](docs/operations.md)
 - **版本**：0.7.0 → 0.7.1
 
 ### v0.6.5 — 服务器端口修复 (closes #16)
