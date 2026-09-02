@@ -1,6 +1,6 @@
 [project]
 name = "fusion-code-modelization"
-version = "0.7.1rc1"
+version = "0.7.1"
 description = "Fusion-Code-Modernization — Local-first legacy code modernization and cross-language migration toolkit powered by fusion-mlx"
 license = "Apache-2.0"
 requires-python = ">=3.12"
