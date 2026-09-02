@@ -201,12 +201,27 @@ fusion-code-modelization test-gen legacy_code.py --loop
 
 ### Hook Interception Layer
 
-A deterministic interception layer the model cannot bypass. Every LLM response (`POST_LLM`), write
-(`PRE_WRITE`), and tool execution (`PRE_EXEC`) passes through a hook registry that can `allow`, `deny`,
-or `modify` the payload. Built-in guards block path traversal / system dirs, destructive shell commands
-(`rm -rf /`, fork bombs, `mkfs`, …), and redact leaked secrets (AWS keys, `sk-*`, `ghp_*`, private keys).
-Deny/redact decisions delegate to `fusion-core.guard_client` → fusion-guard (UDS JSON-RPC) when available,
-with a regex fallback + `WARNING` log when the guard is unreachable.
+A deterministic interception layer the model cannot bypass. A hook registry lets built-in guards
+`allow`, `deny`, or `modify` payloads. Coverage is **event-scoped**, not universal:
+
+| Event | Where emitted | Scope |
+|-------|---------------|-------|
+| `PRE_WRITE` | `SafeWriter` (all package write sites: snapshot, session, audit, CLI output) | every write through the unified writer |
+| `POST_LLM` | `AgentLoop` (`--loop` paths only: transpile, refactor, test-gen) | only the self-heal loop |
+| `PRE_EXEC` | `AgentLoop` verify-tool execution + `PipelineIntegrator` shell runs | loop tool exec + pipeline git/subprocess |
+| `POST_EXEC` | `PipelineIntegrator` shell runs | pipeline git/subprocess |
+
+**Non-loop LLM calls** (plain `transpile`, `refactor`, `scan`, `doc-gen`, `session`, `workflow`) do **not**
+emit `POST_LLM` — they call `MLXClient.chat()` directly, bypassing the registry. To get hook coverage on
+an LLM path, use `--loop`.
+
+Built-in guards:
+- `path_guard` (`PRE_WRITE`) — blocks path traversal / system dirs.
+- `dangerous_cmd_guard` (`PRE_EXEC`) — blocks destructive shell commands (`rm -rf /`, fork bombs, `mkfs`, …), fail-closed allowlist.
+- `secret_scrub` (`POST_LLM`) — redacts leaked secrets in LLM output (AWS keys, `sk-*`, `ghp_*`, private keys).
+- `audit_log` (`POST_EXEC`) — records executed pipeline actions.
+- `guard_evaluate` (`POST_LLM` + `PRE_WRITE`) — delegates to `fusion-core.guard_client` → fusion-guard
+  (UDS JSON-RPC) when available, with a regex fallback + `WARNING` log when the guard is unreachable.
 
 ```bash
 # Hooks are on by default when --loop is used; disable with the global flag:
@@ -403,6 +418,15 @@ ruff format --check .
 ---
 
 ## Changelog
+
+### v0.7.1 — Enterprise Production-Readiness Audit Fix (P0-P3)
+- **77 audit findings resolved** (9 CRITICAL / 24 HIGH / 25 MEDIUM / 19 LOW) across Architecture, Security, Performance, Enterprise-readiness, and Operations dimensions
+- **Security**: hook layer hardened to fail-closed (unknown action → DENY); symlink traversal blocked in snapshot/scan; WebSocket + REST body-size limits; CORS/Host guard; secret scrubbing widened; non-loopback node http flagged; LLM JSON schema-validated before CLI/API return
+- **Correctness**: `MemoryContext.summarize/query` now returns `str` per `chat()` contract (was returning raw dict); stream path gets empty-content guard (issue #14 extended); agent loop fail-fast on unknown tool; retry total_deadline cap
+- **Performance**: snapshot scan size cap + ignore list (build/dist/target); dead-code cache; scheduler state incremental save
+- **Type safety**: mypy 18 → 0 errors; bandit CI gating enforced (no `|| true`); ruff clean
+- **Operations**: single-source `__version__` via importlib.metadata; CLI log timestamp + logger name; live-gateway probe test (`@pytest.mark.live`, skipped by default); README_CN synced 1:1 with README.md; `.[server]` install CI job; production operations guide expanded with **deployment runbook**, **secret rotation procedure**, and **monitoring dashboard** (scrape config + alert thresholds) in [`docs/operations.md`](docs/operations.md)
+- **Version**: 0.7.0 → 0.7.1
 
 ### v0.6.5 — Server Port Fix (closes #16)
 - **Issue #16**: moved the REST API server default port from `11441` to **`11459`** to resolve the collision with `fusion-code` (which owns `11441` per the monorepo port registry); `11459` allocated from the verified-free pool across all 40 repos

@@ -122,7 +122,9 @@ class TestTaskDecomposer:
                 ]
             }
         )
-        with patch.object(decomposer._client, "chat", new=AsyncMock(return_value=mock_response)):
+        with patch.object(
+            decomposer._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": mock_response})
+        ):
             plan = await decomposer.decompose(goal="Migrate legacy Python 2 to 3")
         assert plan.plan_id.startswith("plan_")
         assert len(plan.subtasks) == 2
@@ -132,10 +134,20 @@ class TestTaskDecomposer:
     @pytest.mark.asyncio
     async def test_decompose_parse_failure(self, decomposer):
         with (
-            patch.object(decomposer._client, "chat", new=AsyncMock(return_value="not json")),
+            patch.object(
+                decomposer._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "not json"})
+            ),
             patch.object(decomposer._client, "extract_code", return_value=None),
         ):
             plan = await decomposer.decompose(goal="Bad response")
+        assert len(plan.subtasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_decompose_failed_status(self, decomposer):
+        with patch.object(
+            decomposer._client, "chat", new=AsyncMock(return_value={"status": "failed", "error": "llm_down"})
+        ):
+            plan = await decomposer.decompose(goal="Down")
         assert len(plan.subtasks) == 0
 
 
@@ -166,7 +178,9 @@ class TestWorkflowExecutor:
         t1 = SubTask(task_id="T1", title="Task 1", description="Do task 1")
         t2 = SubTask(task_id="T2", title="Task 2", description="Do task 2")
         plan = WorkflowPlan(plan_id="p1", goal="Test", subtasks=[t1, t2])
-        with patch.object(executor._client, "chat", new=AsyncMock(return_value="result")):
+        with patch.object(
+            executor._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "result"})
+        ):
             result = await executor.execute(plan)
         assert result.status == "completed"
         assert result.success_count == 2
@@ -178,7 +192,9 @@ class TestWorkflowExecutor:
         t1 = SubTask(task_id="T1", title="First", description="Do first")
         t2 = SubTask(task_id="T2", title="Second", description="Do second", depends_on=["T1"])
         plan = WorkflowPlan(plan_id="p2", goal="Dep test", subtasks=[t1, t2])
-        with patch.object(executor._client, "chat", new=AsyncMock(return_value="ok")):
+        with patch.object(
+            executor._client, "chat", new=AsyncMock(return_value={"status": "completed", "content": "ok"})
+        ):
             result = await executor.execute(plan)
         assert result.status == "completed"
         assert result.success_count == 2
@@ -204,7 +220,7 @@ class TestWorkflowExecutor:
             call_count += 1
             if call_count == 2:
                 raise RuntimeError("fail")
-            return "ok"
+            return {"status": "completed", "content": "ok"}
 
         with patch.object(executor._client, "chat", new=AsyncMock(side_effect=side_effect)):
             result = await executor.execute(plan)
@@ -223,7 +239,7 @@ class TestWorkflowExecutor:
             call_count += 1
             if call_count > 1:
                 raise RuntimeError("merge fail")
-            return "task output"
+            return {"status": "completed", "content": "task output"}
 
         with patch.object(executor._client, "chat", new=AsyncMock(side_effect=side_effect)):
             result = await executor.execute(plan)

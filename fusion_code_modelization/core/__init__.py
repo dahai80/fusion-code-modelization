@@ -37,6 +37,7 @@ from .progress import (
     emit_progress,
     emit_start,
 )
+from .safe_writer import SafeWriter, UnsafePathError
 
 __all__ = [
     "MLXClient",
@@ -57,6 +58,8 @@ __all__ = [
     "dangerous_cmd_guard",
     "secret_scrub",
     "audit_log",
+    "SafeWriter",
+    "UnsafePathError",
     "DEFAULT_LOCAL_MODEL",
     "DEFAULT_GATEWAY_URL",
     "ModelConfig",

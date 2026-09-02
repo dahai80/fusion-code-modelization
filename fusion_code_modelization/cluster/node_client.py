@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from typing import Any
 
 import httpx
@@ -10,6 +12,33 @@ from .models import NodeInfo, NodeStatus
 
 logger = logging.getLogger(__name__)
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"}
+
+
+def _is_loopback(host: str) -> bool:
+    if host in _LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        try:
+            resolved = socket.getaddrinfo(host, None)
+            return all(ipaddress.ip_address(entry[4][0]).is_loopback for entry in resolved)
+        except Exception:
+            return False
+
+
+def _node_scheme(host: str) -> str:
+    if _is_loopback(host):
+        return "http"
+    logger.warning("non-loopback node host=%s requires https; bearer over plaintext http refused", host)
+    return "https"
+
+
+def _build_url(node: NodeInfo, path: str) -> str:
+    scheme = _node_scheme(node.host)
+    return f"{scheme}://{node.host}:{node.port}{path}"
+
 
 class NodeClient:
     def __init__(self, default_timeout: float = 10.0):
@@ -18,7 +47,7 @@ class NodeClient:
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def health_check(self, node: NodeInfo) -> bool:
-        url = f"http://{node.host}:{node.port}/v1/models"
+        url = _build_url(node, "/v1/models")
         try:
             async with httpx.AsyncClient(timeout=self.default_timeout) as client:
                 resp = await client.get(url, headers=self._headers)
@@ -33,7 +62,7 @@ class NodeClient:
     async def submit_task(
         self, node: NodeInfo, session_id: str, description: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        url = f"http://{node.host}:{node.port}/v1/chat/completions"
+        url = _build_url(node, "/v1/chat/completions")
         payload = {
             "model": DEFAULT_LOCAL_MODEL,
             "messages": [{"role": "user", "content": description}],
@@ -56,7 +85,7 @@ class NodeClient:
             return {"status": "failed", "error": str(e), "node": node.node_id}
 
     async def get_task_status(self, node: NodeInfo, task_id: str) -> dict[str, Any]:
-        url = f"http://{node.host}:{node.port}/api/tasks/{task_id}"
+        url = _build_url(node, f"/api/tasks/{task_id}")
         try:
             async with httpx.AsyncClient(timeout=self.default_timeout) as client:
                 resp = await client.get(url)
@@ -67,7 +96,7 @@ class NodeClient:
             return {"status": "unknown", "error": str(e)}
 
     async def fetch_result(self, node: NodeInfo, task_id: str) -> dict[str, Any]:
-        url = f"http://{node.host}:{node.port}/api/tasks/{task_id}/result"
+        url = _build_url(node, f"/api/tasks/{task_id}/result")
         try:
             async with httpx.AsyncClient(timeout=self.default_timeout) as client:
                 resp = await client.get(url)
@@ -78,7 +107,7 @@ class NodeClient:
             return {"status": "failed", "error": str(e)}
 
     async def get_node_load(self, node: NodeInfo) -> NodeInfo:
-        url = f"http://{node.host}:{node.port}/api/status"
+        url = _build_url(node, "/api/status")
         try:
             async with httpx.AsyncClient(timeout=self.default_timeout) as client:
                 resp = await client.get(url)

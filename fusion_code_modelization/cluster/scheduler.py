@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
+from typing import Any
 
 from ..loadbalancer import BalancerConfig, LoadBalancer, LoadBalanceStrategy, LoadMetric
 from .models import NodeInfo, NodeStatus, TaskDispatch, TaskDispatchStatus
@@ -20,6 +21,8 @@ class ClusterScheduler:
         self._tasks_file = self.cluster_dir / "tasks.json"
         self._nodes: dict[str, NodeInfo] = {}
         self._tasks: dict[str, TaskDispatch] = {}
+        self._last_nodes_hash: str = ""
+        self._last_tasks_hash: str = ""
         self._node_client = NodeClient()
         self._loadbalancer: LoadBalancer | None = None
         if enable_loadbalancer:
@@ -47,9 +50,21 @@ class ClusterScheduler:
 
     def _save_state(self) -> None:
         nodes_data = {nid: n.to_dict() for nid, n in self._nodes.items()}
-        self._nodes_file.write_text(json.dumps(nodes_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        nodes_json = json.dumps(nodes_data, indent=2, ensure_ascii=False)
+        if nodes_json != self._last_nodes_hash:
+            self._atomic_write(self._nodes_file, nodes_json)
+            self._last_nodes_hash = nodes_json
         tasks_data = {tid: t.to_dict() for tid, t in self._tasks.items()}
-        self._tasks_file.write_text(json.dumps(tasks_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tasks_json = json.dumps(tasks_data, indent=2, ensure_ascii=False)
+        if tasks_json != self._last_tasks_hash:
+            self._atomic_write(self._tasks_file, tasks_json)
+            self._last_tasks_hash = tasks_json
+
+    @staticmethod
+    def _atomic_write(path: Path, content: str) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
 
     def register_node(self, node: NodeInfo) -> NodeInfo:
         self._nodes[node.node_id] = node
@@ -69,8 +84,12 @@ class ClusterScheduler:
         return list(self._nodes.values())
 
     async def get_node_status(self) -> list[NodeInfo]:
-        for node in self._nodes.values():
-            await self._node_client.health_check(node)
+        import asyncio
+
+        nodes = list(self._nodes.values())
+        if not nodes:
+            return []
+        await asyncio.gather(*(self._node_client.health_check(n) for n in nodes), return_exceptions=True)
         self._save_state()
         return list(self._nodes.values())
 
@@ -129,6 +148,8 @@ class ClusterScheduler:
         return await self.dispatch_task(session_id, best.node_id, description)
 
     async def _smart_dispatch(self, session_id: str, description: str, require_gpu: bool) -> TaskDispatch:
+        if not self._loadbalancer:
+            return await self._fallback_dispatch(session_id, description)
         self._sync_loadbalancer_metrics()
         decision = self._loadbalancer.select_node(session_id=session_id)
         if not decision or not decision.selected_node:
@@ -171,8 +192,8 @@ class ClusterScheduler:
         if metrics:
             self._loadbalancer.update_metrics(metrics)
 
-    def cluster_health_report(self) -> dict[str, any]:
-        report: dict[str, any] = {
+    def cluster_health_report(self) -> dict[str, Any]:
+        report: dict[str, Any] = {
             "total_nodes": len(self._nodes),
             "online_nodes": sum(1 for n in self._nodes.values() if n.status == NodeStatus.ONLINE),
             "total_tasks": len(self._tasks),

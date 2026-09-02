@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult, default_trace_path
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from fusion_code_modelization.core.hooks import HookRegistry
@@ -131,6 +132,7 @@ class CodeTranspiler:
         preserve_logic: bool = True,
         max_iter: int = 5,
         hooks: HookRegistry | None = None,
+        trace_path: Path | None = None,
     ) -> dict[str, Any]:
         if source_lang == target_lang:
             return {"status": "skipped", "code": code, "message": "Same language"}
@@ -146,7 +148,12 @@ class CodeTranspiler:
 
         verify_tool = LoopTool(name="verify_logic", execute=execute, description="equivalence verify")
         loop = AgentLoop(
-            client=self._client, tools=[verify_tool], max_iter=max_iter, extract_language=target_lang, hooks=hooks
+            client=self._client,
+            tools=[verify_tool],
+            max_iter=max_iter,
+            extract_language=target_lang,
+            hooks=hooks,
+            trace_path=trace_path if trace_path is not None else default_trace_path("transpile"),
         )
 
         def build_prompt(ctx: str, feedback: str | None) -> str:
@@ -201,7 +208,7 @@ class CodeTranspiler:
                     "content": (
                         f"Compare these two pieces of {language} code. "
                         f"Do they have the same business logic? Answer YES or NO, then explain.\n\n"
-                        f"ORIGINAL:\n{original[:2000]}\n\nTRANSPILED:\n{transpiled[:2000]}"
+                        f"ORIGINAL:\n{original}\n\nTRANSPILED:\n{transpiled}"
                     ),
                 }
             ],

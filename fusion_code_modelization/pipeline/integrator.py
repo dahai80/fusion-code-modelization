@@ -5,49 +5,100 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from ..trace import ArtifactType, RelationshipType, TraceTracker
+from ..core.hooks import HookEvent, HookRegistry
+from ..core.safe_writer import SafeWriter, UnsafePathError
+from ..trace import ArtifactType, RelationshipType, TraceStore, TraceTracker
 from .models import AuditLog
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineIntegrator:
-    def __init__(self, repo_path: str = "."):
+    def __init__(self, repo_path: str = ".", hooks: HookRegistry | None = None):
         self.repo_path = Path(repo_path).expanduser().resolve()
         self._audit_logs: list[AuditLog] = []
+        self._hooks = hooks
+        self._writer = SafeWriter(self.repo_path, registry=hooks)
+        self._trace_tracker: TraceTracker | None = None
+
+    def _check_exec(self, command: list[str]) -> bool:
+        import inspect
+
+        if self._hooks is None or not self._hooks.enabled:
+            return True
+        payload = {"event": HookEvent.PRE_EXEC.value, "command": " ".join(command)}
+        for handler in self._hooks.handlers.get(HookEvent.PRE_EXEC, []):
+            try:
+                decision = handler.execute(payload)
+                if inspect.isawaitable(decision):
+                    logger.debug("skipping async PRE_EXEC handler: %s", handler.name)
+                    cast("Any", decision).close()
+                    continue
+            except Exception as e:
+                logger.error("PRE_EXEC hook %s raised: %s", handler.name, e)
+                return False
+            if not decision.allowed:
+                logger.warning("PRE_EXEC denied %s: %s", command, decision.reason)
+                return False
+        return True
+
+    def _emit_post_exec(self, command: list[str], succeeded: bool, details: str = "") -> None:
+        import inspect
+
+        if self._hooks is None or not self._hooks.enabled:
+            return
+        payload = {
+            "event": HookEvent.POST_EXEC.value,
+            "command": " ".join(command),
+            "succeeded": succeeded,
+            "details": details,
+        }
+        for handler in self._hooks.handlers.get(HookEvent.POST_EXEC, []):
+            try:
+                decision = handler.execute(payload)
+                if inspect.isawaitable(decision):
+                    logger.debug("skipping async POST_EXEC handler: %s", handler.name)
+                    cast("Any", decision).close()
+                    continue
+            except Exception as e:
+                logger.error("POST_EXEC hook %s raised: %s", handler.name, e)
+
+    def _run(self, command: list[str]) -> Any:
+        import subprocess  # nosec B404 - subprocess gated by PRE_EXEC hook below
+
+        if not self._check_exec(command):
+            raise UnsafePathError(f"pre_exec denied: {' '.join(command)}")
+        result = subprocess.run(  # nosec B603 - command list (no shell), PRE_EXEC-hook-gated
+            command,
+            cwd=self.repo_path,
+            capture_output=True,
+            timeout=10,
+        )
+        self._emit_post_exec(
+            command,
+            succeeded=result.returncode == 0,
+            details=f"rc={result.returncode}",
+        )
+        return result
 
     def create_pr(self, branch_name: str, title: str, description: str, changes: list[dict]) -> dict[str, Any]:
-        import subprocess
-
         try:
-            subprocess.run(
-                ["git", "checkout", "-b", branch_name],
-                cwd=self.repo_path,
-                capture_output=True,
-                timeout=10,
-            )
+            self._run(["git", "checkout", "-b", branch_name])
             for change in changes:
-                file_path = self.repo_path / change["path"]
-                if change.get("action") == "delete":
-                    if file_path.exists():
-                        file_path.unlink()
-                else:
-                    file_path.parent.mkdir(parents=True, exist_ok=True)
-                    file_path.write_text(change["content"], encoding="utf-8")
-                subprocess.run(
-                    ["git", "add", change["path"]],
-                    cwd=self.repo_path,
-                    capture_output=True,
-                    timeout=10,
-                )
-            subprocess.run(
-                ["git", "commit", "-m", title, "-m", description],
-                cwd=self.repo_path,
-                capture_output=True,
-                timeout=10,
-            )
+                rel = change["path"]
+                try:
+                    if change.get("action") == "delete":
+                        self._writer.unlink(rel)
+                    else:
+                        self._writer.write_text(rel, change.get("content", ""))
+                except UnsafePathError as e:
+                    self._log("create_pr", "pipeline", rel, "denied", str(e))
+                    logger.error("create_pr blocked unsafe path: %s", e)
+                    return {"status": "error", "error": str(e)}
+                self._run(["git", "add", "--", rel])
+            self._run(["git", "commit", "-m", title, "-m", description])
             pr_info = {
                 "branch": branch_name,
                 "title": title,
@@ -104,7 +155,11 @@ class PipelineIntegrator:
         data = self.get_audit_log(limit=1000)
         output = json.dumps(data, indent=2, ensure_ascii=False)
         if output_path:
-            Path(output_path).write_text(output, encoding="utf-8")
+            export_writer = SafeWriter(self.repo_path, registry=self._writer.registry, strict=False)
+            try:
+                export_writer.write_text(output_path, output)
+            except UnsafePathError as e:
+                logger.error("export_audit_log blocked unsafe path: %s", e)
         return output
 
     def _log(self, action: str, module: str, file: str, status: str, details: str = "") -> None:
@@ -121,7 +176,11 @@ class PipelineIntegrator:
         except ValueError:
             logger.warning("unknown artifact type: %s", artifact_type)
             return None
-        node = tracker.create_node(at, artifact_id, name, metadata or {})
+        try:
+            node = tracker.create_node(at, artifact_id, name, metadata or {})
+        except Exception as e:
+            logger.warning("trace create_node failed (pipeline continues): %s", e)
+            return None
         logger.info("traced artifact: %s (%s) -> node %s", name, artifact_type, node.node_id)
         return node.node_id
 
@@ -136,7 +195,11 @@ class PipelineIntegrator:
         except ValueError:
             logger.warning("unknown relationship type: %s", relationship)
             return None
-        edge = tracker.link_nodes(source_id, target_id, rel, metadata or {})
+        try:
+            edge = tracker.link_nodes(source_id, target_id, rel, metadata or {})
+        except Exception as e:
+            logger.warning("trace link_nodes failed (pipeline continues): %s", e)
+            return None
         logger.info("linked %s -> %s via %s", source_id, target_id, relationship)
         return edge.edge_id if edge else None
 
@@ -155,9 +218,11 @@ class PipelineIntegrator:
         return chain.to_dict() if chain else None
 
     def _get_trace_tracker(self) -> TraceTracker | None:
-        if not hasattr(self, "_trace_tracker"):
+        if self._trace_tracker is None:
             try:
-                self._trace_tracker = TraceTracker(store_dir=str(self.repo_path / ".fusion" / "trace"))
+                self._trace_tracker = TraceTracker(
+                    store=TraceStore(store_dir=str(self.repo_path / ".fusion" / "trace"))
+                )
             except Exception as e:
                 logger.warning("failed to init trace tracker: %s", e)
                 self._trace_tracker = None

@@ -131,7 +131,7 @@ class WorkflowExecutor:
                     t.status = "failed"
                     sr = SubTaskResult(task_id=t.task_id, status="failed", error=str(r))
                 else:
-                    sr = r
+                    sr = r  # type: ignore[assignment]
                     t.status = sr.status
                 self._results[t.task_id] = sr
                 completed_ids.add(t.task_id)
@@ -187,8 +187,13 @@ class WorkflowExecutor:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
-            result.output = response
-            result.status = "completed"
+            if isinstance(response, dict) and response.get("status") == "completed":
+                result.output = str(response.get("content", ""))
+                result.status = "completed"
+            else:
+                err = response.get("error", "llm_failed") if isinstance(response, dict) else "llm_failed"
+                result.error = err
+                result.status = "failed"
         except Exception as e:
             logger.error("Subtask %s failed: %s", task.task_id, e)
             result.error = str(e)
@@ -206,7 +211,13 @@ class WorkflowExecutor:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
-            return merged
+            if isinstance(merged, dict):
+                return (
+                    str(merged.get("content", ""))
+                    if merged.get("status") == "completed"
+                    else f"Merge error: {merged.get('error', 'llm_failed')}"
+                )
+            return str(merged)
         except Exception as e:
             logger.error("Merge failed for %s: %s", plan.plan_id, e)
             return f"Merge error: {e}"

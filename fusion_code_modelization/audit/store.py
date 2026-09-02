@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -128,9 +129,19 @@ class AuditStore:
         return removed
 
     def _rewrite(self, entries: list[AuditEntry]) -> None:
-        for f in self.store_dir.glob("audit*.jsonl"):
-            f.unlink()
-        with open(self._log_file, "w", encoding="utf-8") as f:
-            for entry in entries:
-                line = json.dumps(entry.to_dict(), ensure_ascii=False)
-                f.write(line + "\n")
+        tmp = self._log_file.with_suffix(".jsonl.new")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for entry in entries:
+                    line = json.dumps(entry.to_dict(), ensure_ascii=False)
+                    f.write(line + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            tmp.replace(self._log_file)
+            for old in self.store_dir.glob("audit.*.jsonl"):
+                old.unlink()
+            logger.info("audit log rewritten atomically: %d entries", len(entries))
+        except OSError as e:
+            logger.error("audit _rewrite failed, history preserved: %s", e)
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)

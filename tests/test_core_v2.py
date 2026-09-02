@@ -34,11 +34,11 @@ class TestRoutingStrategy:
 class TestDualModelConfig:
     def test_defaults(self):
         cfg = DualModelConfig()
-        assert cfg.routing_strategy == RoutingStrategy.LOCAL_FIRST
+        assert cfg.routing_strategy == RoutingStrategy.LOCAL_ONLY
         assert cfg.complexity_threshold == 0.7
-        assert cfg.fallback_enabled is True
+        assert cfg.fallback_enabled is False
         assert cfg.local_config.model == DEFAULT_LOCAL_MODEL
-        assert cfg.cloud_config.model == "claude-sonnet-5"
+        assert cfg.cloud_config.model == DEFAULT_LOCAL_MODEL
 
     def test_get_config_local(self):
         cfg = DualModelConfig()
@@ -48,7 +48,7 @@ class TestDualModelConfig:
     def test_get_config_cloud(self):
         cfg = DualModelConfig()
         c = cfg.get_config(ModelStack.CLOUD)
-        assert c.model == "claude-sonnet-5"
+        assert c.model == DEFAULT_LOCAL_MODEL
 
     def test_custom_config(self):
         local = ModelConfig(model="my-local", base_url="http://l:11434/v1")
@@ -131,7 +131,7 @@ class TestDualStackClient:
     def test_get_client_cloud(self):
         client = DualStackClient()
         c = client._get_client("cloud")
-        assert c.config.model == "claude-sonnet-5"
+        assert c.config.model == DEFAULT_LOCAL_MODEL
 
     @pytest.mark.asyncio
     async def test_smart_chat_local_first(self):

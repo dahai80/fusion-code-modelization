@@ -11,12 +11,46 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _DANGEROUS_CMD_RE = re.compile(
-    r"(?:rm\s+-rf\s+/(?:\s|$)|rm\s+-rf\s+~|:\s*\(\)\s*\{\s*:\s*\|\s*:&\s*\}\s*;|mkfs\b|dd\s+.*of=/dev/|>\s*/etc/|curl\s+.*\|\s*sh|wget\s+.*\|\s*sh)",
+    r"(?:"
+    r"rm\s+-rf?\s+(?:/(?:\s|$)|~|\$HOME|/home|/root|/etc|/var|/usr)"  # rm -rf destructive targets
+    r"|:\s*\(\)\s*\{\s*:\s*\|\s*:&\s*\}\s*;"  # fork bomb
+    r"|mkfs\b"
+    r"|dd\s+.*of=/dev/"
+    r"|>\s*/dev/(?:sd|nvme|disk)"
+    r"|>\s*/etc/"
+    r"|chmod\s+-R\b"
+    r"|chown\s+-R\b.*\s/"
+    r"|shutdown\b|reboot\b|halt\b|poweroff\b"
+    r"|curl\s+.*\|\s*(?:sh|bash)\b"
+    r"|wget\s+.*\|\s*(?:sh|bash)\b"
+    r"|bash\s+-c\b.*(?:rm|mkfs|dd|>|shutdown)"
+    r"|find\s+/\s+.*-delete\b"
+    r")",
     re.IGNORECASE,
 )
 _SECRET_RE = re.compile(
-    r"(?:AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)",
+    r"(?:"
+    r"AKIA[0-9A-Z]{16}"  # AWS access key id
+    r"|sk-[a-zA-Z0-9]{20,}"  # OpenAI-style
+    r"|ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82}"  # GitHub classic + fine-grained
+    r"|glpat-[a-zA-Z0-9_\-]{20}"  # GitLab
+    r"|xox[baprs]-[a-zA-Z0-9\-]{10,}"  # Slack
+    r"|-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"  # PEM blocks
+    r"|AIza[0-9A-Za-z_\-]{35}"  # Google API key
+    r")",
 )
+_REDACTED = "[REDACTED:SECRET]"
+
+
+def scrub_secrets(text: str) -> str:
+    if not text:
+        return text
+    scrubbed, count = _SECRET_RE.subn(_REDACTED, text)
+    if count:
+        logger.info("scrub_secrets redacted %d secret(s)", count)
+    return scrubbed
+
+
 _PATH_TRAVERSAL_RE = re.compile(r"(?:\.\./){2,}|/etc/|/var/log/|/root/")
 
 
@@ -104,7 +138,7 @@ def secret_scrub(payload: dict[str, Any]) -> HookDecision:
     content = str(payload.get("content", ""))
     if not content:
         return HookDecision(action=HookAction.ALLOW, reason="no_content")
-    scrubbed, count = _SECRET_RE.subn("[REDACTED:SECRET]", content)
+    scrubbed, count = _SECRET_RE.subn(_REDACTED, content)
     if count:
         logger.info("secret_scrub redacted %d secret(s)", count)
         return HookDecision(action=HookAction.MODIFY, reason=f"secret_scrub:{count}_secrets", modified_content=scrubbed)
@@ -148,16 +182,22 @@ class GuardBridge:
             return HookDecision(action=HookAction.ALLOW, reason="guard_unavailable_fallback_regex")
         try:
             verdict = client.evaluate(content, category_hint=category_hint)
-            if verdict.action == "block":
+            action = getattr(verdict, "action", None)
+            if action == "block":
                 return HookDecision(action=HookAction.DENY, reason=f"guard:block:{verdict.reason}")
-            if verdict.redacted_content:
-                return HookDecision(
-                    action=HookAction.MODIFY, reason="guard:redact", modified_content=verdict.redacted_content
-                )
-            return HookDecision(action=HookAction.ALLOW, reason="guard:allow")
+            if action == "redact":
+                redacted = getattr(verdict, "redacted_content", None)
+                if redacted is None:
+                    logger.warning("guard redact verdict without redacted_content, fail-closed DENY")
+                    return HookDecision(action=HookAction.DENY, reason="guard:redact_missing_content")
+                return HookDecision(action=HookAction.MODIFY, reason="guard:redact", modified_content=redacted)
+            if action == "allow":
+                return HookDecision(action=HookAction.ALLOW, reason="guard:allow")
+            logger.warning("guard returned unknown action %r, fail-closed DENY", action)
+            return HookDecision(action=HookAction.DENY, reason=f"guard:unknown_action:{action}")
         except Exception as e:
-            logger.warning("guard.evaluate failed, fallback to regex: %s", e)
-            return HookDecision(action=HookAction.ALLOW, reason=f"guard_error_fallback_regex:{e}")
+            logger.warning("guard.evaluate failed, fail-closed DENY: %s", e)
+            return HookDecision(action=HookAction.DENY, reason=f"guard_error_fail_closed:{e}")
 
 
 def default_registry(guard_enabled: bool = True) -> HookRegistry:
@@ -168,6 +208,9 @@ def default_registry(guard_enabled: bool = True) -> HookRegistry:
     )
     registry.register(
         HookHandler("secret_scrub", HookEvent.POST_LLM, secret_scrub, "redact leaked secrets in LLM output")
+    )
+    registry.register(
+        HookHandler("secret_scrub_write", HookEvent.PRE_WRITE, secret_scrub, "redact secrets before disk persistence")
     )
     registry.register(HookHandler("audit_log", HookEvent.POST_EXEC, audit_log, "record executed actions"))
     bridge = GuardBridge(enabled=guard_enabled)

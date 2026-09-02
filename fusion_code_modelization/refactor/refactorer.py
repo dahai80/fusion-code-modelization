@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopStatus, LoopTool, LoopToolResult, default_trace_path
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from fusion_code_modelization.core.hooks import HookRegistry
@@ -18,7 +19,7 @@ async def _verify_equivalence_tool(client: MLXClient, original: str, language: s
     async def execute(produced: str) -> LoopToolResult:
         ver = await client.simple_chat(
             f"Do these two {language} code snippets produce the same outputs for the same inputs? "
-            f"Answer YES or NO then explain.\n\nORIGINAL:\n{original[:2000]}\n\nREFACTORED:\n{produced[:2000]}",
+            f"Answer YES or NO then explain.\n\nORIGINAL:\n{original}\n\nREFACTORED:\n{produced}",
             max_tokens=512,
             temperature=0.0,
         )
@@ -45,7 +46,7 @@ class IncrementalRefactorer:
                         f"Generate characterization tests for this {language} code. "
                         f"The tests should capture the current behavior by testing "
                         f"inputs and expected outputs. Return the test code only.\n\n"
-                        f"```{language}\n{code[:3000]}\n```"
+                        f"```{language}\n{code}\n```"
                     ),
                 }
             ],
@@ -117,9 +118,17 @@ class IncrementalRefactorer:
         instructions: str = "",
         max_iter: int = 5,
         hooks: HookRegistry | None = None,
+        trace_path: Path | None = None,
     ) -> dict[str, Any]:
         verify = await _verify_equivalence_tool(self._client, code, language)
-        loop = AgentLoop(client=self._client, tools=[verify], max_iter=max_iter, extract_language=language, hooks=hooks)
+        loop = AgentLoop(
+            client=self._client,
+            tools=[verify],
+            max_iter=max_iter,
+            extract_language=language,
+            hooks=hooks,
+            trace_path=trace_path if trace_path is not None else default_trace_path("refactor"),
+        )
 
         def build_prompt(ctx: str, feedback: str | None) -> str:
             prompt = f"Refactor the following {language} code. Improve code quality without changing business logic.\n"
@@ -134,12 +143,15 @@ class IncrementalRefactorer:
             return prompt
 
         logger.info("refactor_with_loop start: language=%s max_iter=%d", language, max_iter)
-        return await loop.run(
+        result = await loop.run(
             objective=f"refactor {language} code preserving behavior",
             build_prompt=build_prompt,
             extract=None,
             verify_tool="verify_equivalence",
         )
+        if result["status"] == LoopStatus.MAX_ITER.value:
+            logger.warning("refactor_with_loop MAX_ITER: returning unverified partial output, verified=False")
+        return result
 
     async def dual_run_verify(self, original_code: str, refactored_code: str, language: str) -> dict[str, Any]:
         result = await self._client.chat(
@@ -149,8 +161,8 @@ class IncrementalRefactorer:
                     "content": (
                         f"Do these two {language} code snippets produce the same outputs "
                         f"for the same inputs? Answer YES or NO, then explain differences.\n\n"
-                        f"ORIGINAL:\n{original_code[:2000]}\n\n"
-                        f"REFACTORED:\n{refactored_code[:2000]}"
+                        f"ORIGINAL:\n{original_code}\n\n"
+                        f"REFACTORED:\n{refactored_code}"
                     ),
                 }
             ],

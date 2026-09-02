@@ -249,8 +249,8 @@ class TestCLI:
         assert "online" in out
 
     def test_offline_capabilities(self, capsys):
-        cap1 = MagicMock(value="transpile")
-        cap2 = MagicMock(value="analyze")
+        cap1 = "transpile"
+        cap2 = "analyze"
 
         with patch("fusion_code_modelization.offline.OfflineManager") as MockMgr:
             inst = MockMgr.return_value
@@ -475,10 +475,14 @@ class TestCLI:
         assert "least_loaded" in out
 
     def test_offline_prepare(self, capsys, tmp_path):
-        fake_pkg = MagicMock()
-        fake_pkg.package_id = "pkg-001"
-        fake_pkg.mode = MagicMock(value="full_offline")
-        fake_pkg.size_mb = 512.3
+        fake_pkg = {
+            "status": "completed",
+            "package_id": "pkg-001",
+            "mode": "full_offline",
+            "size_mb": 512.3,
+            "model_count": 2,
+            "plugin_count": 0,
+        }
 
         with (
             patch("fusion_code_modelization.offline.OfflineManager") as MockMgr,

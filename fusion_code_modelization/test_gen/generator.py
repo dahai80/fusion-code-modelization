@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult
+from fusion_code_modelization.core.agent_loop import AgentLoop, LoopTool, LoopToolResult, default_trace_path
 from fusion_code_modelization.core.client import MLXClient
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, ModelConfig
 from fusion_code_modelization.core.hooks import HookRegistry
@@ -23,7 +24,7 @@ async def _syntax_check_tool(client: MLXClient, language: str) -> LoopTool:
             except SyntaxError as e:
                 return LoopToolResult(passed=False, output="", error=f"syntax_error:{e}")
         ver = await client.simple_chat(
-            f"Is this {language} code syntactically valid? Answer YES or NO then explain.\n\n```\n{produced[:2000]}\n```",
+            f"Is this {language} code syntactically valid? Answer YES or NO then explain.\n\n```\n{produced}\n```",
             max_tokens=256,
             temperature=0.0,
         )
@@ -90,10 +91,22 @@ class UnitTestGenerator:
             yield {"type": "done", "result": {"status": "failed", "error": str(e)}}
 
     async def generate_with_loop(
-        self, code: str, language: str, max_iter: int = 5, hooks: HookRegistry | None = None
+        self,
+        code: str,
+        language: str,
+        max_iter: int = 5,
+        hooks: HookRegistry | None = None,
+        trace_path: Path | None = None,
     ) -> dict[str, Any]:
         verify = await _syntax_check_tool(self._client, language)
-        loop = AgentLoop(client=self._client, tools=[verify], max_iter=max_iter, extract_language=language, hooks=hooks)
+        loop = AgentLoop(
+            client=self._client,
+            tools=[verify],
+            max_iter=max_iter,
+            extract_language=language,
+            hooks=hooks,
+            trace_path=trace_path if trace_path is not None else default_trace_path("test_gen"),
+        )
 
         def build_prompt(ctx: str, feedback: str | None) -> str:
             prompt = (

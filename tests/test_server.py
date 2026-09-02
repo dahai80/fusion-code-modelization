@@ -3,9 +3,28 @@ from __future__ import annotations
 import tempfile
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from fusion_code_modelization.server import create_app
+
+
+class _FakeGatewayResp:
+    status_code = 200
+
+
+class _FakeGatewayClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url):
+        return _FakeGatewayResp()
 
 
 class TestServerHealth:
@@ -13,9 +32,48 @@ class TestServerHealth:
         with tempfile.TemporaryDirectory() as tmpdir:
             app = create_app(base_dir=tmpdir)
             client = TestClient(app)
-            resp = client.get("/health")
+            with patch(
+                "fusion_code_modelization.server.app.httpx.AsyncClient",
+                _FakeGatewayClient,
+            ):
+                resp = client.get("/health")
             assert resp.status_code == 200
             assert resp.json()["status"] == "ok"
+
+    def test_health_degraded_when_gateway_unreachable(self):
+        class _DeadClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, url):
+                raise OSError("connection refused")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir)
+            client = TestClient(app)
+            with patch(
+                "fusion_code_modelization.server.app.httpx.AsyncClient",
+                _DeadClient,
+            ):
+                resp = client.get("/health")
+            assert resp.status_code == 503
+            assert resp.json()["status"] == "degraded"
+
+    def test_metrics_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir)
+            client = TestClient(app)
+            resp = client.get("/metrics")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "chat_total" in data
+            assert "workflow_total" in data
 
 
 class TestServerSessions:
@@ -204,3 +262,150 @@ class TestServerWorkflow:
             client = TestClient(app)
             resp = client.get("/api/workflows/unknown")
             assert resp.status_code == 404
+
+
+class TestServerAuth:
+    def test_rejects_request_without_token(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            resp = client.get("/api/sessions")
+            assert resp.status_code == 401
+
+    def test_rejects_request_with_wrong_token(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            resp = client.get("/api/sessions", headers={"Authorization": "Bearer wrong"})
+            assert resp.status_code == 401
+
+    def test_allows_request_with_valid_token(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            resp = client.get("/api/sessions", headers={"Authorization": "Bearer secret-key"})
+            assert resp.status_code == 200
+
+    def test_public_paths_bypass_auth(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            with patch(
+                "fusion_code_modelization.server.app.httpx.AsyncClient",
+                _FakeGatewayClient,
+            ):
+                assert client.get("/health").status_code == 200
+            assert client.get("/docs").status_code == 200
+            assert client.get("/openapi.json").status_code == 200
+
+    def test_ws_rejects_missing_token(self):
+        from starlette.websockets import WebSocketDisconnect
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/chat"):
+                pass
+
+    def test_ws_accepts_valid_token(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret-key")
+            client = TestClient(app)
+            sid = client.post(
+                "/api/sessions", json={"name": "s"}, headers={"Authorization": "Bearer secret-key"}
+            ).json()["session_id"]
+            with (
+                patch(
+                    "fusion_code_modelization.session.engine.MLXClient.chat",
+                    new=AsyncMock(return_value={"status": "completed", "content": "ok"}),
+                ),
+                client.websocket_connect("/ws/chat?token=secret-key") as ws,
+            ):
+                ws.send_json({"session_id": sid, "message": "hi"})
+                assert ws.receive_json()["status"] == "completed"
+
+
+class TestServerRateLimit:
+    def test_rate_limit_returns_429(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, rate_limit=3)
+            client = TestClient(app)
+            for _ in range(3):
+                assert client.get("/api/sessions").status_code == 200
+            assert client.get("/api/sessions").status_code == 429
+
+
+class TestRunnerLoopback:
+    def test_rejects_non_loopback_host(self):
+        from fusion_code_modelization.server.runner import run_server
+
+        with pytest.raises(ValueError, match="non-loopback"):
+            run_server(host="0.0.0.0")
+
+    def test_accepts_loopback_host(self):
+        from fusion_code_modelization.server.runner import _is_loopback
+
+        assert _is_loopback("127.0.0.1") is True
+        assert _is_loopback("localhost") is True
+        assert _is_loopback("::1") is True
+        assert _is_loopback("0.0.0.0") is False
+
+
+class TestServerLifespan:
+    def test_lifespan_restores_and_persists_workflow_state(self, monkeypatch, tmp_path):
+        import json
+
+        home = tmp_path / "home"
+        home.mkdir()
+        state_path = home / ".fusion" / "code_mod" / "workflow_results.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps({"plan_x": {"plan_id": "plan_x", "status": "completed"}}))
+        monkeypatch.setenv("HOME", str(home))
+        with tempfile.TemporaryDirectory() as base:
+            app = create_app(base_dir=base)
+            with TestClient(app) as client:
+                assert client.get("/api/workflows/plan_x").status_code == 200
+            assert json.loads(state_path.read_text())["plan_x"]["plan_id"] == "plan_x"
+
+    def test_lifespan_restore_bad_json_warns(self, monkeypatch, tmp_path):
+        home = tmp_path / "home"
+        home.mkdir()
+        state_path = home / ".fusion" / "code_mod" / "workflow_results.json"
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text("not json{")
+        monkeypatch.setenv("HOME", str(home))
+        with tempfile.TemporaryDirectory() as base:
+            app = create_app(base_dir=base)
+            with TestClient(app):
+                pass
+
+
+class TestServerGuards:
+    def test_oversized_body_returns_413(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            big = "x" * (2 * 1024 * 1024)
+            resp = client.post(
+                "/api/sessions",
+                json={"name": big},
+                headers={"Content-Length": str(len(big) + 20)},
+            )
+            assert resp.status_code == 413
+
+    def test_misdirected_host_returns_421(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            resp = client.get("/api/sessions", headers={"Host": "evil.example.com"})
+            assert resp.status_code == 421
+
+    def test_cors_rejected_origin_null(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir, api_key="secret")
+            client = TestClient(app)
+            resp = client.get(
+                "/api/sessions",
+                headers={"Origin": "https://evil.example.com"},
+            )
+            assert resp.headers.get("Access-Control-Allow-Origin") == "null"

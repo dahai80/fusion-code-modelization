@@ -4,6 +4,27 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-09-02
+
+### Added
+
+- **Operations guide** (`docs/operations.md`): production deployment runbook (pre-flight CI gate, standard update, rollback, first-time install, health-check gate), secret management & rotation procedure (90-day schedule, 6-step zero-downtime rotation, systemd EnvironmentFile storage, compromise response), and monitoring dashboard (`/metrics` panel mapping, 15s scrape script, 4 alerting rules).
+
+### Changed
+
+- **77 audit findings resolved** (9 CRITICAL / 24 HIGH / 25 MEDIUM / 19 LOW) across Architecture, Security, Performance, Enterprise-readiness, and Operations dimensions.
+- **Security**: hook layer hardened to fail-closed (unknown action → DENY); symlink traversal blocked in snapshot/scan; WebSocket + REST body-size limits (`FUSION_MAX_BODY_BYTES`); CORS/Host guard middleware reordered to reject oversized bodies + misdirected hosts before auth budget spent (413/421); secret scrubbing widened; non-loopback node http flagged; LLM JSON schema-validated before CLI/API return.
+- **Correctness**: `MemoryContext.summarize/query` returns `str` per `chat()` contract (was returning raw dict); stream path empty-content guard (issue #14 extended); agent loop fail-fast on unknown tool; retry total_deadline cap.
+- **Performance**: snapshot scan size cap + ignore list (build/dist/target); dead-code cache; scheduler state incremental save.
+- **Type safety**: mypy 18 → 0 errors; bandit CI gating enforced (no `|| true`); ruff clean; bandit 0 issues all severities (4 Low eliminated — 3 nosec + 1 real `assert` → explicit None-narrowing).
+- **Tests**: 826 tests pass, 82% coverage; `TestServerGuards` (413/421/CORS-null), `TestServerLifespan` (restore/persist, bad-json warn), `test_safe_writer.py` (11 path-traversal + hook tests).
+
+### Fixed
+
+- **conftest key-strip bug**: `pytest_configure` used substring check (`"live" not in "not live"` = False) that leaked shell `FUSION_MLX_API_KEY` into mocked tests, enabling auth by accident → 17-test regression. Fixed to `is_live_only = markexpr == "live"`.
+- **Live gateway probe** skipped (401): probe + tests now send `Bearer` header; default model switched to `Qwen3.8-27B-4bit` (loaded model; `Qwen3.5-9B-4bit` not loaded → 502).
+- **Live E2E transpile** verified: python → go via Qwen3.8-27B-4bit, go-vet clean.
+
 ## [0.7.0] — 2026-09-01
 
 ### Added

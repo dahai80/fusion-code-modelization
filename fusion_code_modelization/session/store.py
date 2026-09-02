@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 from ..core.config import DEFAULT_LOCAL_MODEL
+from ..core.hooks import scrub_secrets
 from .state import Session, SessionConfig, SessionMessage, SessionState
 
 logger = logging.getLogger(__name__)
+
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,128}$")
+
+
+def _validate_session_id(session_id: str) -> str:
+    if not isinstance(session_id, str) or not _SESSION_ID_RE.match(session_id):
+        logger.warning("rejected invalid session_id: %r", session_id)
+        raise ValueError(f"invalid session_id: {session_id!r}")
+    return session_id
 
 
 class SessionStore:
@@ -21,11 +32,18 @@ class SessionStore:
         session.updated_at = time.time()
         path = self._session_path(session.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(session.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        data = session.to_dict()
+        for msg in data.get("messages", []):
+            msg["content"] = scrub_secrets(str(msg.get("content", "")))
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.debug("Session saved: %s", session.session_id)
 
     def load(self, session_id: str) -> Session | None:
-        path = self._session_path(session_id)
+        try:
+            path = self._session_path(session_id)
+        except ValueError:
+            logger.warning("rejected load invalid session_id: %r", session_id)
+            return None
         if not path.exists():
             logger.warning("Session not found: %s", session_id)
             return None
@@ -37,7 +55,11 @@ class SessionStore:
             return None
 
     def delete(self, session_id: str) -> bool:
-        path = self._session_path(session_id)
+        try:
+            path = self._session_path(session_id)
+        except ValueError:
+            logger.warning("rejected delete invalid session_id: %r", session_id)
+            return False
         if path.exists():
             path.unlink()
             logger.info("Session deleted: %s", session_id)
@@ -59,6 +81,7 @@ class SessionStore:
         return [s for s in self.list_sessions() if s.state == state]
 
     def _session_path(self, session_id: str) -> Path:
+        _validate_session_id(session_id)
         return self._base_dir / session_id / "session.json"
 
     @staticmethod
