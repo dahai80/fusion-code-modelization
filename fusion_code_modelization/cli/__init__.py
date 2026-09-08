@@ -159,7 +159,7 @@ def main():
     # cluster
     cl = sub.add_parser("cluster", help="Distributed cluster scheduling")
     cl.add_argument("action", choices=["discover", "dispatch", "status", "schedule", "migrate", "register", "tasks"])
-    cl.add_argument("--node-id", default="", help="Target node ID")
+    cl.add_argument("--node-id", default="", help="(deprecated, single-machine) Target node ID")
     cl.add_argument("--host", default="localhost", help="Node host")
     cl.add_argument("--port", type=int, default=GATEWAY_PORT, help="Node port")
     cl.add_argument("--session-id", default="", help="Session ID to dispatch")
