@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterScheduler:
-    def __init__(self, cluster_dir: str = ".fusion/cluster", enable_loadbalancer: bool = True):
+    def __init__(self, cluster_dir: str = ".fusion/cluster", enable_loadbalancer: bool = False):
         self.cluster_dir = Path(cluster_dir)
         self.cluster_dir.mkdir(parents=True, exist_ok=True)
         self._nodes_file = self.cluster_dir / "nodes.json"
