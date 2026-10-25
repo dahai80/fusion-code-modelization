@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,10 +42,11 @@ class TestCLI:
         assert "ANALYSIS REPORT" in out
         MockAnalyzer.return_value.scan_directory.assert_called_once_with(str(tmp_path))
 
-    def test_analyze_with_output(self, capsys, tmp_path):
+    def test_analyze_with_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         fake_graph = MagicMock()
         fake_debt = {"total_hours": 0}
-        out_file = tmp_path / "report.txt"
+        out_file = Path("report.txt")
 
         with patch("fusion_code_modelization.analyzer.dependency.DependencyAnalyzer") as MockAnalyzer:
             inst = MockAnalyzer.return_value
@@ -177,6 +179,22 @@ class TestCLI:
 
         out = capsys.readouterr().out
         assert "suite_a" in out
+
+    def test_benchmark_code_quality_real_measurements(self, capsys, tmp_path):
+        (tmp_path / "sample.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        (tmp_path / "test_sample.py").write_text(
+            "from sample import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n", encoding="utf-8"
+        )
+        _run_cli("benchmark", "run", "--suite", "code_quality", "--path", str(tmp_path))
+
+        out = capsys.readouterr().out
+        assert "cyclomatic_complexity: max" in out
+        assert "test_coverage:" in out
+        assert "lint_violations:" in out
+        assert "Skipped: 2" in out
+        assert "[passed] " in out
+        skipped = sum(1 for line in out.splitlines() if "[skipped]" in line)
+        assert skipped == 2
 
     def test_benchmark_run(self, capsys):
         fake_result = MagicMock()
@@ -344,10 +362,11 @@ class TestCLI:
 
         MockAnalyzer.assert_called_once_with(mlx_url="http://custom:9999/v1")
 
-    def test_transpile_with_output(self, capsys, tmp_path):
+    def test_transpile_with_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         src = tmp_path / "src.vb"
         src.write_text("Dim x As Integer")
-        out_file = tmp_path / "out.cs"
+        out_file = Path("out.cs")
 
         with patch("fusion_code_modelization.migration.transpiler.CodeTranspiler") as MockTranspiler:
             inst = MockTranspiler.return_value
@@ -366,10 +385,11 @@ class TestCLI:
         assert out_file.exists()
         assert out_file.read_text() == "int x;"
 
-    def test_refactor_with_output(self, capsys, tmp_path):
+    def test_refactor_with_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         src = tmp_path / "main.py"
         src.write_text("def foo(): pass")
-        out_file = tmp_path / "out.py"
+        out_file = Path("out.py")
 
         with patch("fusion_code_modelization.refactor.refactorer.IncrementalRefactorer") as MockRefactorer:
             inst = MockRefactorer.return_value
@@ -384,10 +404,11 @@ class TestCLI:
         assert out_file.exists()
         assert "-> None" in out_file.read_text()
 
-    def test_test_gen_with_output(self, capsys, tmp_path):
+    def test_test_gen_with_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         src = tmp_path / "calc.py"
         src.write_text("def add(a, b): return a + b")
-        out_file = tmp_path / "test_calc.py"
+        out_file = Path("test_calc.py")
 
         with patch("fusion_code_modelization.test_gen.generator.UnitTestGenerator") as MockGenerator:
             inst = MockGenerator.return_value
@@ -406,10 +427,11 @@ class TestCLI:
         assert out_file.exists()
         assert "test_add" in out_file.read_text()
 
-    def test_security_with_output(self, capsys, tmp_path):
+    def test_security_with_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         src = tmp_path / "app.py"
         src.write_text("password = 'hardcoded'")
-        out_file = tmp_path / "security.json"
+        out_file = Path("security.json")
 
         scan_result = {
             "status": "completed",
@@ -432,6 +454,34 @@ class TestCLI:
         assert out_file.exists()
         data = json.loads(out_file.read_text())
         assert data["total_findings"] == 1
+
+    def test_transpile_secret_scrubbed_in_plain_path(self, capsys, tmp_path):
+        src = tmp_path / "src.py"
+        src.write_text("print('hi')")
+
+        with patch("fusion_code_modelization.migration.transpiler.CodeTranspiler") as MockTranspiler:
+            inst = MockTranspiler.return_value
+            inst.transpile = AsyncMock(
+                return_value={"status": "completed", "code": 'token = "sk-abcdefghijklmnopqrstuvwxyz1234567890"'}
+            )
+            _run_cli("transpile", str(src), "--from", "python", "--to", "go")
+
+        out = capsys.readouterr().out
+        assert "[REDACTED:SECRET]" in out
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
+
+    def test_output_traversal_rejected(self, capsys, tmp_path):
+        src = tmp_path / "src.py"
+        src.write_text("print('hi')")
+
+        with patch("fusion_code_modelization.migration.transpiler.CodeTranspiler") as MockTranspiler:
+            inst = MockTranspiler.return_value
+            inst.transpile = AsyncMock(return_value={"status": "completed", "code": "x"})
+            _run_cli("transpile", str(src), "--from", "python", "--to", "go", "--output", "../../etc/evil.txt")
+
+        out = capsys.readouterr().out
+        assert "blocked" in out
+        assert not (tmp_path.parent.parent / "etc" / "evil.txt").exists()
 
     def test_loadbalancer_predict(self, capsys):
         with (

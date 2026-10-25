@@ -212,6 +212,9 @@ class GuardBridge:
             logger.warning("guard returned unknown action %r, fail-closed DENY", action)
             return HookDecision(action=HookAction.DENY, reason=f"guard:unknown_action:{action}")
         except Exception as e:
+            if "unreachable" in str(e):
+                logger.warning("fusion-guard unreachable, falling back to builtin regex guards: %s", e)
+                return HookDecision(action=HookAction.ALLOW, reason="guard_unreachable_fallback_regex")
             logger.warning("guard.evaluate failed, fail-closed DENY: %s", e)
             return HookDecision(action=HookAction.DENY, reason=f"guard_error_fail_closed:{e}")
 

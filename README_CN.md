@@ -32,7 +32,7 @@
 | **流式 LLM 输出** | ✅ 实时 token 流式 | ❌ |
 | **进度回调** | ✅ 可组合回调系统 | ❌ |
 | **微服务拆分** | ✅ | ✅ |
-| **Git 集成** | ✅ Gitee, GitHub, GitLab | ✅ 仅 GitHub |
+| **Git 集成** | ✅ 本地 git 分支/提交 + PR 描述生成（无 Gitee/GitLab/GitHub 平台 API 集成） | ✅ 仅 GitHub |
 | **并行多 Agent 会话** | ✅ SessionEngine | ✅ |
 | **动态工作流** | ✅ LLM 任务拆解 | ✅ |
 | **增量快照** | ✅ FileDelta + SnapshotManager | ✅ |
@@ -41,7 +41,7 @@
 | **双栈模型路由** | ✅ 本地/云端 + 复杂度路由 | ✅ |
 | **企业审计** | ✅ JSONL + 搜索/导出/统计 | ✅ |
 | **集群调度** | ✅ 节点注册 + 自动调度 | ✅ |
-| **MCP 插件平台** | ✅ 注册表 + 生命周期管理 | ✅ |
+| **插件系统** | ✅ 本地插件注册表 + 生命周期管理（非 MCP） | ✅ MCP |
 | **基准测试套件** | ✅ 代码质量/性能/迁移/安全 | ✅ |
 | **集群负载均衡** | ✅ 4 策略（轮询/最少负载/加权/亲和） | ✅ |
 | **离线部署** | ✅ 全离线/半离线/在线 + 能力矩阵 | ✅ |
@@ -66,9 +66,8 @@
 
 1. `FUSION_MLX_API_KEY` 环境变量 —— **网关客户端密钥**（如 `fg-admin-key`）
 2. `MLX_API_KEY` 环境变量
-3. `OPENAI_API_KEY` 环境变量
 
-> ⚠️ 该密钥必须是 fusion-gateway `config.yaml`（`auth.api_keys`）中注册的网关客户端密钥，**不是** fusion-mlx 上游密钥。未设置则以无认证方式请求，网关会拒绝。
+> ⚠️ 该密钥必须是 fusion-gateway `config.yaml`（`auth.api_keys`）中注册的网关客户端密钥，**不是** fusion-mlx 上游密钥。未设置则以无认证方式请求，网关会拒绝。**不**读取 `OPENAI_API_KEY`。
 
 默认本地模型 id 为 `Qwen3.5-9B-4bit`（须与网关 fusion-mlx 上游加载的模型一致 —— 用 `~/claude-home/fusion-mlx/start.sh status` 查看）。按调用覆盖：`MLXClient(...).chat(model=...)`，或构造自定义 `ModelConfig`。
 
@@ -162,7 +161,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `decompose <path> [--method] [--output]` | 微服务边界检测（static/llm） |
 | `audit <action> [--actor] [--severity]` | 企业审计日志（log/search/export/stats/cleanup） |
 | `cluster <action> [--node-id] [--session-id]` | 分布式集群调度（discover/dispatch/status/schedule/migrate/register/tasks） |
-| `plugin <action> [--plugin-id] [--query]` | MCP 插件平台（list/search/install/load/unload/execute/status） |
+| `plugin <action> [--plugin-id] [--query]` | 插件系统（本地注册表；list/search/install/load/unload/execute/status） |
 | `benchmark <action> [--suite] [--report-id]` | 运行基准套件并对比报告（run/list/compare/history） |
 | `loadbalancer <action> [--strategy]` | 集群负载均衡（overview/rebalance/predict/select） |
 | `offline <action> [--mode] [--package-dir]` | 离线部署管理（detect/capabilities/prepare/validate/restore） |
@@ -281,15 +280,21 @@ python -m fusion_code_modelization.server
 | Python | ✅ | ✅ | ✅ | ✅ |
 | Java | ✅ | ✅ | ✅ | ✅ |
 | Go | ✅ | ✅ | ❌ | ✅ |
-| JavaScript/TypeScript | ✅ | ✅ | ❌ | ✅ |
+| JavaScript | ✅ | ✅ | ❌ | ✅ |
+| TypeScript | ⚠️ | ✅ | ❌ | ✅ |
 | C/C++ | ✅ | ❌ | ❌ | ✅ |
 | C# | ✅ | ✅ | ❌ | ✅ |
 | COBOL | ✅ | ✅ | ❌ | ❌ |
-| VB6 | ✅ | ✅ | ❌ | ❌ |
+| VB6 | ⚠️ | ✅ | ❌ | ❌ |
 | Ruby | ✅ | ❌ | ❌ | ❌ |
 | Swift | ✅ | ❌ | ❌ | ❌ |
 | Rust | ✅ | ❌ | ❌ | ❌ |
 | PHP | ✅ | ❌ | ❌ | ❌ |
+| Kotlin | ✅ | ❌ | ❌ | ❌ |
+| Scala | ✅ | ❌ | ❌ | ❌ |
+
+> **分析** = 依赖 import 提取（14 种语言：Python、Java、C、C++、C#、JavaScript、Go、Rust、PHP、Ruby、Swift、Kotlin、Scala、COBOL）。TypeScript 与 VB6 文件会被扫描计数，但无 import 提取 —— 死代码检测将其报告为**未判定**（undetermined）而非死代码。
+> **安全扫描**静态规则仅覆盖 Python、Java、JavaScript；其余语言回退到 LLM 分析（配置了 fusion-security 时走委派）。
 
 ---
 
@@ -345,7 +350,7 @@ python -m fusion_code_modelization.server
 | **文档生成器** | `doc_gen/generator.py` | 模块/类/API 文档生成 + 流式 |
 | **进度回调** | `core/progress.py` | ProgressEvent、LoggingProgressCallback、CompositeProgressCallback |
 | **流水线集成器** | `pipeline/integrator.py` | Git/CI-CD 集成、PR 创建、审计日志 |
-| **PR 生成器** | `pr_gen/pr_generator.py` | PR 描述与变更日志生成 |
+| **PR 生成器** | `pr_gen/pr_generator.py` | PR 描述生成 |
 | **微服务拆分器** | `pr_gen/decomposer.py` | 单体边界分析（多粒度） |
 | **MLXClient** | `core/client.py` | 统一 HTTP 客户端、代码提取、流式 |
 | **ModelConfig** | `core/config.py` | 模型配置 + 预设 + 双栈路由 |
@@ -457,7 +462,7 @@ ruff format --check .
 ### v0.3.0 — 企业平台
 - 企业审计系统（JSONL + 搜索/导出/统计）
 - 集群调度（节点发现 + 自动调度）
-- MCP 插件平台（注册表 + 生命周期）
+- 插件平台（本地注册表 + 生命周期）
 - 快照优化（压缩/校验/自动清理）
 - 所有新模块的 CLI 扩展
 

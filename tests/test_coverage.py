@@ -34,12 +34,13 @@ class TestCLI:
             with patch.object(sys, "argv", ["fusion-code-modelization", "analyze", tmpdir]):
                 main()
 
-    def test_analyze_with_output(self):
+    def test_analyze_with_output(self, monkeypatch):
         from fusion_code_modelization.cli import main
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            monkeypatch.chdir(tmpdir)
             Path(tmpdir, "test.py").write_text("import os")
-            out = str(Path(tmpdir) / "report.md")
+            out = "report.md"
             with patch.object(sys, "argv", ["fusion-code-modelization", "analyze", tmpdir, "--output=" + out]):
                 main()
             assert Path(out).exists()
@@ -62,7 +63,7 @@ class TestCLI:
             Path(tmpdir, "test.py").write_text("print('hello')")
             main()
 
-    def test_transpile_with_output(self):
+    def test_transpile_with_output(self, monkeypatch):
         from fusion_code_modelization.cli import main
 
         with (
@@ -76,7 +77,7 @@ class TestCLI:
                     str(Path(tmpdir, "test.py")),
                     "--from=python",
                     "--to=java",
-                    "--output=" + str(Path(tmpdir) / "output.java"),
+                    "--output=output.java",
                 ],
             ),
             patch(
@@ -84,6 +85,7 @@ class TestCLI:
                 AsyncMock(return_value={"status": "completed", "code": "public class X {}"}),
             ),
         ):
+            monkeypatch.chdir(tmpdir)
             Path(tmpdir, "test.py").write_text("print('hello')")
             main()
             assert Path(tmpdir, "output.java").exists()
@@ -120,7 +122,7 @@ class TestCLI:
             Path(tmpdir, "test.py").write_text("x=1")
             main()
 
-    def test_refactor_with_output(self):
+    def test_refactor_with_output(self, monkeypatch):
         from fusion_code_modelization.cli import main
 
         with (
@@ -132,7 +134,7 @@ class TestCLI:
                     "fusion-code-modelization",
                     "refactor",
                     str(Path(tmpdir, "test.py")),
-                    "--output=" + str(Path(tmpdir) / "refactored.py"),
+                    "--output=refactored.py",
                 ],
             ),
             patch(
@@ -140,6 +142,7 @@ class TestCLI:
                 AsyncMock(return_value={"status": "completed", "refactored": "x = 1"}),
             ),
         ):
+            monkeypatch.chdir(tmpdir)
             Path(tmpdir, "test.py").write_text("x=1")
             main()
             assert Path(tmpdir, "refactored.py").exists()
@@ -158,7 +161,7 @@ class TestCLI:
             Path(tmpdir, "test.py").write_text("def foo(): pass")
             main()
 
-    def test_test_gen_with_output(self):
+    def test_test_gen_with_output(self, monkeypatch):
         from fusion_code_modelization.cli import main
 
         with (
@@ -170,7 +173,7 @@ class TestCLI:
                     "fusion-code-modelization",
                     "test-gen",
                     str(Path(tmpdir, "test.py")),
-                    "--output=" + str(Path(tmpdir) / "test_output.py"),
+                    "--output=test_output.py",
                 ],
             ),
             patch(
@@ -178,6 +181,7 @@ class TestCLI:
                 AsyncMock(return_value={"status": "completed", "tests": "def test(): pass"}),
             ),
         ):
+            monkeypatch.chdir(tmpdir)
             Path(tmpdir, "test.py").write_text("def foo(): pass")
             main()
             assert Path(tmpdir, "test_output.py").exists()

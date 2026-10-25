@@ -32,6 +32,7 @@ class BenchmarkItem:
     category: BenchmarkCategory = BenchmarkCategory.CUSTOM
     target_score: float = 0.0
     description: str = ""
+    lower_is_better: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -40,6 +41,7 @@ class BenchmarkItem:
             "category": self.category.value,
             "target_score": self.target_score,
             "description": self.description,
+            "lower_is_better": self.lower_is_better,
         }
 
     @classmethod
@@ -50,6 +52,7 @@ class BenchmarkItem:
             category=BenchmarkCategory(data.get("category", "custom")),
             target_score=data.get("target_score", 0.0),
             description=data.get("description", ""),
+            lower_is_better=bool(data.get("lower_is_better", False)),
         )
 
 

@@ -11,12 +11,14 @@ class PredefinedBenchmarkSuites:
         items = [
             BenchmarkItem(
                 name="cyclomatic_complexity",
+                lower_is_better=True,
                 category=BenchmarkCategory.CODE_QUALITY,
                 target_score=10.0,
                 description="Max cyclomatic complexity per function",
             ),
             BenchmarkItem(
                 name="duplication_ratio",
+                lower_is_better=True,
                 category=BenchmarkCategory.CODE_QUALITY,
                 target_score=5.0,
                 description="Code duplication percentage (lower is better)",
@@ -29,6 +31,7 @@ class PredefinedBenchmarkSuites:
             ),
             BenchmarkItem(
                 name="lint_violations",
+                lower_is_better=True,
                 category=BenchmarkCategory.CODE_QUALITY,
                 target_score=0.0,
                 description="Number of lint violations (lower is better)",
@@ -47,6 +50,7 @@ class PredefinedBenchmarkSuites:
         items = [
             BenchmarkItem(
                 name="inference_latency",
+                lower_is_better=True,
                 category=BenchmarkCategory.PERFORMANCE,
                 target_score=2000.0,
                 description="Inference latency in ms (lower is better)",
@@ -59,12 +63,14 @@ class PredefinedBenchmarkSuites:
             ),
             BenchmarkItem(
                 name="memory_peak",
+                lower_is_better=True,
                 category=BenchmarkCategory.PERFORMANCE,
                 target_score=4096.0,
                 description="Peak memory usage in MB (lower is better)",
             ),
             BenchmarkItem(
                 name="startup_time",
+                lower_is_better=True,
                 category=BenchmarkCategory.PERFORMANCE,
                 target_score=5000.0,
                 description="Cold start time in ms (lower is better)",
@@ -107,12 +113,14 @@ class PredefinedBenchmarkSuites:
         items = [
             BenchmarkItem(
                 name="vulnerability_count",
+                lower_is_better=True,
                 category=BenchmarkCategory.SECURITY,
                 target_score=0.0,
                 description="Known vulnerability count (lower is better)",
             ),
             BenchmarkItem(
                 name="secret_exposure",
+                lower_is_better=True,
                 category=BenchmarkCategory.SECURITY,
                 target_score=0.0,
                 description="Exposed secrets count (lower is better)",

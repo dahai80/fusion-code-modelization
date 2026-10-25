@@ -31,7 +31,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Streaming LLM output** | ✅ Real-time token streaming | ❌ |
 | **Progress callbacks** | ✅ Composable callback system | ❌ |
 | **Microservice decomposition** | ✅ | ✅ |
-| **Git integration** | ✅ Gitee, GitHub, GitLab | ✅ GitHub only |
+| **Git integration** | ✅ Local git branch/commit + PR description generation (no Gitee/GitLab/GitHub API integration) | ✅ GitHub only |
 | **Parallel multi-agent sessions** | ✅ SessionEngine | ✅ |
 | **Dynamic Workflow** | ✅ LLM task decomposition | ✅ |
 | **Incremental snapshots** | ✅ FileDelta + SnapshotManager | ✅ |
@@ -40,7 +40,7 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 | **Dual-stack model routing** | ✅ local/cloud + complexity routing | ✅ |
 | **Enterprise audit** | ✅ JSONL + search/export/statistics | ✅ |
 | **Cluster scheduling** | ✅ Node registration + auto-schedule | ✅ |
-| **MCP plugin platform** | ✅ Registry + lifecycle management | ✅ |
+| **Plugin system** | ✅ Local plugin registry + lifecycle management (not MCP) | ✅ MCP |
 | **Benchmark suites** | ✅ Code quality, performance, migration, security | ✅ |
 | **Cluster load balancing** | ✅ 4 strategies (round-robin/least-loaded/weighted/affinity) | ✅ |
 | **Offline deployment** | ✅ Full-offline/semi-offline/online with capability matrix | ✅ |
@@ -63,9 +63,8 @@ All inference is routed through **fusion-gateway** (`localhost:11432/v1`); this 
 
 1. `FUSION_MLX_API_KEY` environment variable — the **gateway client key** (e.g. `fg-admin-key`)
 2. `MLX_API_KEY` environment variable
-3. `OPENAI_API_KEY` environment variable
 
-> ⚠️ The key must be a gateway client key registered in fusion-gateway's `config.yaml` (`auth.api_keys`), **not** the fusion-mlx upstream key. If none is set, requests run unauthenticated and the gateway will reject them.
+> ⚠️ The key must be a gateway client key registered in fusion-gateway's `config.yaml` (`auth.api_keys`), **not** the fusion-mlx upstream key. If none is set, requests run unauthenticated and the gateway will reject them. `OPENAI_API_KEY` is **not** consulted.
 
 The default local model id is `Qwen3.5-9B-4bit` (must match a model loaded by the gateway's fusion-mlx upstream — check `~/claude-home/fusion-mlx/start.sh status`). Override per call with `MLXClient(...).chat(model=...)` or by constructing a custom `ModelConfig`.
 
@@ -151,7 +150,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `decompose <path> [--method] [--output]` | Microservice boundary detection (static/llm) |
 | `audit <action> [--actor] [--severity]` | Enterprise audit logging (log/search/export/stats/cleanup) |
 | `cluster <action> [--node-id] [--session-id]` | Distributed cluster scheduling (discover/dispatch/status/schedule/migrate/register/tasks) |
-| `plugin <action> [--plugin-id] [--query]` | MCP plugin platform (list/search/install/load/unload/execute/status) |
+| `plugin <action> [--plugin-id] [--query]` | Plugin system (local registry; list/search/install/load/unload/execute/status) |
 | `benchmark <action> [--suite] [--report-id]` | Run benchmark suites and compare reports (run/list/compare/history) |
 | `loadbalancer <action> [--strategy]` | Cluster load balancing (overview/rebalance/predict/select) |
 | `offline <action> [--mode] [--package-dir]` | Offline deployment management (detect/capabilities/prepare/validate/restore) |
@@ -266,15 +265,21 @@ Interactive API docs are auto-served at `/docs` (Swagger) and `/redoc`.
 | Python | ✅ | ✅ | ✅ | ✅ |
 | Java | ✅ | ✅ | ✅ | ✅ |
 | Go | ✅ | ✅ | ❌ | ✅ |
-| JavaScript/TypeScript | ✅ | ✅ | ❌ | ✅ |
+| JavaScript | ✅ | ✅ | ❌ | ✅ |
+| TypeScript | ⚠️ | ✅ | ❌ | ✅ |
 | C/C++ | ✅ | ❌ | ❌ | ✅ |
 | C# | ✅ | ✅ | ❌ | ✅ |
 | COBOL | ✅ | ✅ | ❌ | ❌ |
-| VB6 | ✅ | ✅ | ❌ | ❌ |
+| VB6 | ⚠️ | ✅ | ❌ | ❌ |
 | Ruby | ✅ | ❌ | ❌ | ❌ |
 | Swift | ✅ | ❌ | ❌ | ❌ |
 | Rust | ✅ | ❌ | ❌ | ❌ |
 | PHP | ✅ | ❌ | ❌ | ❌ |
+| Kotlin | ✅ | ❌ | ❌ | ❌ |
+| Scala | ✅ | ❌ | ❌ | ❌ |
+
+> **Analysis** = dependency import extraction (14 languages: Python, Java, C, C++, C#, JavaScript, Go, Rust, PHP, Ruby, Swift, Kotlin, Scala, COBOL). TypeScript and VB6 files are scanned and counted, but have no import extraction — dead-code detection reports them as **undetermined** rather than dead.
+> **Security** static patterns cover Python, Java, JavaScript only; all other languages fall back to LLM analysis (or fusion-security delegation when configured).
 
 ---
 
@@ -309,7 +314,7 @@ Interactive API docs are auto-served at `/docs` (Swagger) and `/redoc`.
 │  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
 │  │ PRGenerator    │  │ DocGenerator   │  │ Microservice     │  │
 │  │ (PR descriptions│  │ (migration     │  │ Decomposer       │  │
-│  │  & changelogs) │  │  reports, API, │  │ (boundary analysis│ │
+│  │  generation)  │  │  reports, API, │  │ (boundary analysis│ │
 │  └────────────────┘  │  + streaming)  │  └──────────────────┘  │
 │                       └────────────────┘                        │
 │                                                                  │
@@ -370,7 +375,7 @@ Interactive API docs are auto-served at `/docs` (Swagger) and `/redoc`.
 | **Doc Generator** | `doc_gen/generator.py` | Module/class/API doc generation + streaming |
 | **Progress Callbacks** | `core/progress.py` | ProgressEvent, LoggingProgressCallback, CompositeProgressCallback |
 | **Pipeline Integrator** | `pipeline/integrator.py` | Git/CI-CD integration, PR creation, audit logging |
-| **PR Generator** | `pr_gen/pr_generator.py` | PR description and changelog generation |
+| **PR Generator** | `pr_gen/pr_generator.py` | PR description generation |
 | **Microservice Decomposer** | `pr_gen/decomposer.py` | Monolith boundary analysis with multi-granularity |
 | **MLXClient** | `core/client.py` | Unified HTTP client for fusion-mlx API, code extraction, streaming |
 | **ModelConfig** | `core/config.py` | Model configuration with presets + dual-stack routing |
@@ -478,7 +483,7 @@ ruff format --check .
 ### v0.3.0 — Enterprise Platform
 - Enterprise audit system (JSONL + search/export/statistics)
 - Cluster scheduling (node discovery + auto-schedule)
-- MCP plugin platform (registry + lifecycle)
+- Plugin platform (local registry + lifecycle)
 - Snapshot optimization (compress/verify/auto-cleanup)
 - CLI extensions for all new modules
 

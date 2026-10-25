@@ -227,6 +227,18 @@ class TestBenchmarkRunner:
         report = runner.run_suite("nonexistent")
         assert report.total_items == 0
 
+    def test_lower_is_better_status_direction(self, runner):
+        low = runner.run_single("code_quality", "cyclomatic_complexity", score=3.0)
+        assert low.status == BenchmarkStatus.PASSED
+        high = runner.run_single("code_quality", "cyclomatic_complexity", score=15.0)
+        assert high.status == BenchmarkStatus.FAILED
+
+    def test_lint_violations_zero_passes(self, runner):
+        result = runner.run_single("code_quality", "lint_violations", score=0.0)
+        assert result.status == BenchmarkStatus.PASSED
+        bad = runner.run_single("code_quality", "lint_violations", score=5.0)
+        assert bad.status == BenchmarkStatus.FAILED
+
     def test_run_single_passed(self, runner):
         result = runner.run_single("code_quality", "test_coverage", score=85.0, duration_ms=5.0)
         assert result.status == BenchmarkStatus.PASSED

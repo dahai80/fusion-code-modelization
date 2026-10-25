@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fusion_code_modelization import __version__ as VERSION
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT, GATEWAY_PORT
-from fusion_code_modelization.core.hooks import default_registry
+from fusion_code_modelization.core.hooks import HookAction, HookEvent, default_registry
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -169,7 +169,7 @@ def main():
     cl.add_argument("--require-gpu", action="store_true", help="Require GPU for scheduling")
 
     # plugin
-    pl = sub.add_parser("plugin", help="MCP plugin platform")
+    pl = sub.add_parser("plugin", help="Plugin system (local registry + lifecycle)")
     pl.add_argument("action", choices=["list", "search", "install", "load", "unload", "execute", "status"])
     pl.add_argument("--plugin-id", default="", help="Plugin ID")
     pl.add_argument("--name", default="", help="Plugin name for registration")
@@ -301,7 +301,7 @@ def _configure_logging(args):
 def _write_output(output: str, content: str, hooks=None) -> bool:
     from fusion_code_modelization.core.safe_writer import SafeWriter, UnsafePathError
 
-    writer = SafeWriter(Path(".").resolve(), registry=hooks or _cli_hooks(), strict=False)
+    writer = SafeWriter(Path(".").resolve(), registry=hooks or _cli_hooks(), strict=True)
     try:
         writer.write_text(output, content)
         return True
@@ -309,6 +309,42 @@ def _write_output(output: str, content: str, hooks=None) -> bool:
         logger.error("output write blocked: %s", e)
         print(f"Error: output path blocked: {e}")
         return False
+
+
+async def _scrub_llm_result(result: dict, keys: tuple[str, ...], hooks=None) -> dict:
+    registry = hooks or _cli_hooks()
+    if not isinstance(result, dict) or result.get("status") != "completed":
+        return result
+    for key in keys:
+        value = result.get(key)
+        if not value:
+            continue
+        if isinstance(value, str):
+            decision = await registry.emit(HookEvent.POST_LLM, {"content": value, "action": key})
+            if decision.action == HookAction.DENY:
+                logger.warning("POST_LLM denied %s: %s", key, decision.reason)
+                return {**result, "status": "failed", "error": f"hook_denied:{decision.reason}"}
+            if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                result = {**result, key: decision.modified_content}
+        elif isinstance(value, list):
+            scrubbed_items = []
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("description"), str):
+                    decision = await registry.emit(HookEvent.POST_LLM, {"content": item["description"], "action": key})
+                    if decision.action == HookAction.DENY:
+                        logger.warning("POST_LLM denied %s finding: %s", key, decision.reason)
+                        return {**result, "status": "failed", "error": f"hook_denied:{decision.reason}"}
+                    if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                        item = {**item, "description": decision.modified_content}
+                scrubbed_items.append(item)
+            result = {**result, key: scrubbed_items}
+    return result
+
+
+async def _hook_scrub(args, result: dict, keys: tuple[str, ...]) -> dict:
+    if getattr(args, "no_hooks", False):
+        return result
+    return await _scrub_llm_result(result, keys)
 
 
 def _cmd_version():
@@ -386,6 +422,7 @@ async def _cmd_transpile(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await transpiler.transpile(code, args.source_lang, args.target_lang)
+        result = await _hook_scrub(args, result, ("code",))
         if result["status"] == "completed":
             output = result["code"]
             if args.output:
@@ -437,6 +474,7 @@ async def _cmd_refactor(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await refactorer.refactor(code, lang, args.instructions)
+        result = await _hook_scrub(args, result, ("refactored",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["refactored"]):
                 print(f"Refactored code saved to {args.output}")
@@ -485,6 +523,7 @@ async def _cmd_test_gen(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await generator.generate_unit_tests(code, lang)
+        result = await _hook_scrub(args, result, ("tests",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["tests"]):
                 print(f"Tests saved to {args.output}")
@@ -522,6 +561,7 @@ async def _cmd_security(args):
                 _write_output(args.output, json.dumps(result, indent=2))
     else:
         result = await scanner.scan(code, lang)
+        result = await _hook_scrub(args, result, ("findings",))
         print(f"Found {result['total_findings']} issue(s):")
         for f in result.get("findings", []):
             print(f"  [{f['severity']}] Line {f['line']}: {f['description']}")
@@ -583,6 +623,11 @@ async def _cmd_workflow(args):
     if args.action == "decompose":
         decomposer = TaskDecomposer()
         plan = await decomposer.decompose(args.description, template=args.template)
+        if not getattr(args, "no_hooks", False):
+            for st in plan.subtasks:
+                decision = await _cli_hooks().emit(HookEvent.POST_LLM, {"content": st.title, "action": "subtask_title"})
+                if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                    st.title = decision.modified_content
         print(f"Plan: {plan.goal} ({len(plan.subtasks)} tasks)")
         for t in plan.subtasks:
             deps = ", ".join(t.depends_on) if t.depends_on else "none"
@@ -681,6 +726,7 @@ async def _cmd_doc_gen(args):
             result = await gen.generate_api_docs(code, lang)
         else:
             result = await gen.generate_docs(code, lang, doc_type=args.doc_type)
+        result = await _hook_scrub(args, result, ("documentation",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["documentation"]):
                 print(f"Docs saved to {args.output}")
@@ -815,23 +861,131 @@ def _cmd_plugin(args):
         print(json.dumps(status, indent=2))
 
 
+def _collect_py_files(path: str) -> list[Path]:
+    root = Path(path)
+    if root.is_file():
+        return [root] if root.suffix == ".py" else []
+    if not root.is_dir():
+        return []
+    return [p for p in root.rglob("*.py") if ".venv" not in p.parts]
+
+
+def _measure_max_cyclomatic_complexity(py_files: list[Path]) -> float:
+    import ast
+
+    max_cc = 0.0
+    for p in py_files:
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError as e:
+            logger.warning("complexity parse failed for %s: %s", p, e)
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                cc = 1
+                for child in ast.walk(node):
+                    if isinstance(
+                        child, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler, ast.Assert, ast.Match)
+                    ):
+                        cc += 1
+                    elif isinstance(child, ast.BoolOp):
+                        cc += len(child.values) - 1
+                    elif isinstance(child, ast.IfExp):
+                        cc += 1
+                max_cc = max(max_cc, float(cc))
+    return max_cc
+
+
+def _measure_test_coverage(path: str, cov_json: Path) -> float | None:
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        str(path),
+        "--cov",
+        str(path),
+        "--cov-report",
+        f"json:{cov_json}",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("test_coverage measurement failed: %s", e)
+        return None
+    if not cov_json.exists():
+        logger.warning("test_coverage: coverage report not produced")
+        return None
+    try:
+        data = json.loads(cov_json.read_text(encoding="utf-8"))
+        return round(float(data["totals"]["percent_covered"]), 1)
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warning("test_coverage: failed to parse coverage report: %s", e)
+        return None
+
+
+def _measure_lint_violations(path: str) -> float | None:
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, "-m", "ruff", "check", str(path), "--output-format", "json"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("lint_violations measurement failed (ruff unavailable?): %s", e)
+        return None
+    if proc.returncode not in (0, 1):
+        logger.warning("lint_violations: ruff exited %d: %s", proc.returncode, proc.stderr[:200])
+        return None
+    try:
+        findings = json.loads(proc.stdout or "[]")
+        return float(len(findings))
+    except ValueError as e:
+        logger.warning("lint_violations: failed to parse ruff output: %s", e)
+        return None
+
+
 def _build_score_fn(suite_name: str, path: str) -> dict:
     import py_compile
+    import tempfile
 
     root = Path(path)
     score_fn: dict = {}
-    if suite_name == "migration_quality" and root.is_dir():
-        py_files = [p for p in root.rglob("*.py") if ".venv" not in p.parts]
-        if py_files:
-            passed = 0
-            for p in py_files:
-                try:
-                    py_compile.compile(str(p), doraise=True)
-                    passed += 1
-                except py_compile.PyCompileError as e:
-                    logger.warning("syntax check failed for %s: %s", p, e)
-            score_fn["syntax_correctness"] = round(passed / len(py_files) * 100, 1)
-            print(f"  syntax_correctness: {passed}/{len(py_files)} python files compile")
+    if not root.exists():
+        logger.warning("benchmark path not found: %s", path)
+        return score_fn
+    py_files = _collect_py_files(path)
+    if suite_name == "migration_quality" and py_files:
+        passed = 0
+        for p in py_files:
+            try:
+                py_compile.compile(str(p), doraise=True)
+                passed += 1
+            except py_compile.PyCompileError as e:
+                logger.warning("syntax check failed for %s: %s", p, e)
+        score_fn["syntax_correctness"] = round(passed / len(py_files) * 100, 1)
+        print(f"  syntax_correctness: {passed}/{len(py_files)} python files compile")
+    elif suite_name == "code_quality":
+        if not py_files:
+            logger.warning("code_quality: no python files under %s", path)
+            return score_fn
+        cc = _measure_max_cyclomatic_complexity(py_files)
+        score_fn["cyclomatic_complexity"] = cc
+        print(f"  cyclomatic_complexity: max {cc:.0f} across {len(py_files)} files")
+        with tempfile.TemporaryDirectory(prefix="fcm_bench_") as tmpdir:
+            cov = _measure_test_coverage(path, Path(tmpdir) / "coverage.json")
+        if cov is not None:
+            score_fn["test_coverage"] = cov
+            print(f"  test_coverage: {cov}%")
+        lint = _measure_lint_violations(path)
+        if lint is not None:
+            score_fn["lint_violations"] = lint
+            print(f"  lint_violations: {lint:.0f} ruff findings")
     return score_fn
 
 
