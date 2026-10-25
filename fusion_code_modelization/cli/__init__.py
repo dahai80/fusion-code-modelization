@@ -194,6 +194,9 @@ def main():
     bm.add_argument("--report-a", default="", help="First report ID for compare")
     bm.add_argument("--report-b", default="", help="Second report ID for compare")
     bm.add_argument("--limit", type=int, default=10, help="History limit")
+    bm.add_argument(
+        "--path", default="", help="Project path for real measurements (e.g. syntax_correctness via py_compile)"
+    )
 
     # loadbalancer
     lb = sub.add_parser("loadbalancer", help="Cluster load balancing and scheduling")
@@ -559,16 +562,16 @@ def _cmd_snapshot(args):
     mgr = SnapshotManager(project_dir=args.project_dir)
     if args.action == "create":
         snap = mgr.create_snapshot(label=args.label)
-        print(f"Created snapshot: {snap.id}")
+        print(f"Created snapshot: {snap.snapshot_id}")
     elif args.action == "list":
         for s in mgr.list_snapshots():
-            print(f"  {s['id']}  {s['created_at']}  {s.get('label', '')}")
+            print(f"  {s['snapshot_id']}  {s['created_at']}  {s.get('label', '')}")
     elif args.action == "restore":
         ok = mgr.restore_snapshot(args.snapshot_id)
         print(f"Restore {'succeeded' if ok else 'failed'}")
     elif args.action == "rewind":
         snap = mgr.rewind(steps=args.steps)
-        print(f"Rewound to: {snap.id}" if snap else "No snapshot to rewind to")
+        print(f"Rewound to: {snap.snapshot_id}" if snap else "No snapshot to rewind to")
     elif args.action == "delete":
         ok = mgr.delete_snapshot(args.snapshot_id)
         print(f"Delete {'succeeded' if ok else 'failed'}")
@@ -593,26 +596,23 @@ async def _cmd_workflow(args):
 
 
 async def _cmd_memory(args):
-    from fusion_code_modelization.memory import MemoryTierManager
+    from fusion_code_modelization.memory import MemoryContext, MemoryTierManager
 
-    mgr = MemoryTierManager()
+    mgr = MemoryTierManager(project_dir=args.project_dir)
     if args.action == "init":
-        mgr.init_project(args.project_dir)
+        mgr.init_project()
         print(f"Initialized project memory in {args.project_dir}")
     elif args.action == "list":
-        entries = mgr.list_directory_memories(args.project_dir)
-        for e in entries:
-            print(f"  {e.tier.value}: {e.path}")
+        for e in mgr.list_directory_memories():
+            print(f"  {e}")
     elif args.action == "load":
-        context = mgr.load_all(args.project_dir)
+        context = mgr.load_all()
         print(f"Loaded {len(context)} memory entries")
         for e in context:
             print(f"  [{e.tier.value}] {e.path}: {len(e.content)} chars")
     elif args.action == "query":
-        from fusion_code_modelization.memory import MemoryContext
-
-        ctx = MemoryContext(tier_manager=mgr)
-        result = await ctx.query(args.query, project_dir=args.project_dir)
+        ctx = MemoryContext(project_dir=args.project_dir)
+        result = await ctx.query(args.query)
         print(result)
 
 
@@ -622,8 +622,10 @@ def _cmd_sandbox(args):
     policy = SandboxPolicy(mode=args.mode)
     guard = SandboxGuard(policy=policy)
     if args.action == "check":
-        allowed, reason = guard.check_path(args.path)
+        allowed, reason = guard.check_read(args.path)
         print(f"Path {'allowed' if allowed else 'denied'}: {reason}")
+        if not allowed:
+            sys.exit(1)
     elif args.action == "audit":
         entries = guard.get_audit_log()
         print(f"Audit log: {len(entries)} entries")
@@ -813,6 +815,26 @@ def _cmd_plugin(args):
         print(json.dumps(status, indent=2))
 
 
+def _build_score_fn(suite_name: str, path: str) -> dict:
+    import py_compile
+
+    root = Path(path)
+    score_fn: dict = {}
+    if suite_name == "migration_quality" and root.is_dir():
+        py_files = [p for p in root.rglob("*.py") if ".venv" not in p.parts]
+        if py_files:
+            passed = 0
+            for p in py_files:
+                try:
+                    py_compile.compile(str(p), doraise=True)
+                    passed += 1
+                except py_compile.PyCompileError as e:
+                    logger.warning("syntax check failed for %s: %s", p, e)
+            score_fn["syntax_correctness"] = round(passed / len(py_files) * 100, 1)
+            print(f"  syntax_correctness: {passed}/{len(py_files)} python files compile")
+    return score_fn
+
+
 def _cmd_benchmark(args):
     from fusion_code_modelization.benchmark import BenchmarkRunner
 
@@ -826,12 +848,15 @@ def _cmd_benchmark(args):
         if not args.suite:
             print("Error: --suite required for run")
             return
-        report = runner.run_suite(args.suite, score_fn={})
+        score_fn = _build_score_fn(args.suite, args.path) if args.path else {}
+        report = runner.run_suite(args.suite, score_fn=score_fn)
         print(f"Report: {report.report_id}")
-        print(f"  Passed: {report.passed_count}, Failed: {report.failed_count}, Skipped: {report.skipped_count}")
-        print(f"  Average score: {report.average_score:.1f}%")
+        print(f"  Passed: {report.passed_items}, Failed: {report.failed_items}, Skipped: {report.skipped_items}")
+        print(f"  Average score: {report.avg_score:.1f}")
         for r in report.results:
             print(f"    [{r.status.value}] {r.item_id}: {r.score:.1f}/{r.target_score:.1f}")
+        if not score_fn:
+            print("  (no --path given: no real measurements, items without score_fn are SKIPPED)")
     elif args.action == "compare":
         if not args.report_a or not args.report_b:
             print("Error: --report-a and --report-b required for compare")
@@ -846,7 +871,7 @@ def _cmd_benchmark(args):
             return
         trends = runner.get_historical_trends(args.suite, limit=args.limit)
         for t in trends:
-            print(f"  {t['report_id']}: avg={t['average_score']:.1f}% passed={t['passed_count']}")
+            print(f"  {t['report_id']}: avg={t['avg_score']:.1f} pass_rate={t['pass_rate']:.0%}")
 
 
 def _cmd_loadbalancer(args):
@@ -861,7 +886,7 @@ def _cmd_loadbalancer(args):
         suggestions = lb.rebalance()
         if suggestions:
             for s in suggestions:
-                print(f"  Move {s['tasks_to_move']} tasks from {s['overloaded_node']} to {s['underloaded_node']}")
+                print(f"  {s.reason} -> {s.selected_node}")
         else:
             print("No rebalance needed")
     elif args.action == "predict":

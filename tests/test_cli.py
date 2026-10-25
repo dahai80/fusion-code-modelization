@@ -187,10 +187,10 @@ class TestCLI:
 
         fake_report = MagicMock()
         fake_report.report_id = "rpt-001"
-        fake_report.passed_count = 1
-        fake_report.failed_count = 0
-        fake_report.skipped_count = 0
-        fake_report.average_score = 85.0
+        fake_report.passed_items = 1
+        fake_report.failed_items = 0
+        fake_report.skipped_items = 0
+        fake_report.avg_score = 85.0
         fake_report.results = [fake_result]
 
         with patch("fusion_code_modelization.benchmark.BenchmarkRunner") as MockRunner:
@@ -200,7 +200,7 @@ class TestCLI:
 
         out = capsys.readouterr().out
         assert "rpt-001" in out
-        assert "85.0%" in out
+        assert "85.0" in out
 
     def test_loadbalancer_overview(self, capsys):
         with (
@@ -227,11 +227,10 @@ class TestCLI:
             MockConfig.return_value = MagicMock()
             inst = MockLB.return_value
             inst.rebalance.return_value = [
-                {
-                    "overloaded_node": "n1",
-                    "underloaded_node": "n2",
-                    "tasks_to_move": 2,
-                }
+                MagicMock(
+                    reason="rebalance: n1 overloaded, moving 2 tasks to n2",
+                    selected_node="n2",
+                )
             ]
             _run_cli("loadbalancer", "rebalance")
 
@@ -573,7 +572,7 @@ class TestCLI:
         with patch("fusion_code_modelization.benchmark.BenchmarkRunner") as MockRunner:
             inst = MockRunner.return_value
             inst.get_historical_trends.return_value = [
-                {"report_id": "r1", "average_score": 80.0, "passed_count": 5},
+                {"report_id": "r1", "avg_score": 80.0, "pass_rate": 1.0},
             ]
             _run_cli(
                 "benchmark",
@@ -586,4 +585,4 @@ class TestCLI:
 
         out = capsys.readouterr().out
         assert "r1" in out
-        assert "80.0%" in out
+        assert "80.0" in out

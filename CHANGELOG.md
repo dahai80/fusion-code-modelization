@@ -4,6 +4,27 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] — 2026-10-25
+
+### Fixed
+
+- **5 broken CLI command groups** (runtime crashes from field/method-name mismatches, all exposed by the new smoke suite; closes #25):
+  - `sandbox check` — called nonexistent `SandboxGuard.check_path`; now uses `check_read` and exits 0 (allowed) / 1 (denied)
+  - `snapshot create/list/rewind` — `snap.id`/`s['id']` → `snapshot_id` (real model field)
+  - `memory init/list/load/query` — wrong signatures (`list_directory_memories(path)` takes no args, `MemoryContext(tier_manager=...)` kwarg doesn't exist); manager now constructed with `project_dir`, handlers use real APIs
+  - `benchmark run/history` — `passed_count`/`average_score` → `passed_items`/`avg_score`; history keys → `avg_score`/`pass_rate`
+  - `loadbalancer rebalance` — read dict keys from `SchedulingDecision` objects that don't exist; now prints `reason` + `selected_node`
+
+### Added
+
+- **CLI smoke suite** (`tests/test_cli_smoke.py`, 46 tests): every registered subcommand gets `--help` (exit 0) plus one representative real invocation each (LLM mocked, filesystem fixtures in tmp); structurally prevents shipping a subcommand that crashes on first invocation. Includes the issue-#25 grep gate (`guard.check_path` must not reappear).
+- **benchmark real measurement**: `benchmark run --path <dir>` now computes a real `syntax_correctness` score (py_compile pass rate over project `.py` files) instead of always producing all-SKIPPED reports; without `--path` the report states explicitly that no measurements ran.
+
+### Changed
+
+- **audit wiring**: the `audit_log` hook guard (POST_EXEC) now persists to the AuditLogger JSONL store (`.fusion/audit/`) instead of only logging — pipeline git operations audited at hooks.py `audit_log`; persistence failure is non-blocking (hook remains allow-through).
+- **trace wiring**: `PipelineIntegrator.create_pr` now records a `code_change` trace node per created PR branch (integrator.py `create_pr`), so pipeline PRs land in the traceability graph without manual `trace create`.
+
 ## [0.7.1] — 2026-09-02
 
 ### Added
