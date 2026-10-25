@@ -102,24 +102,58 @@ class DependencyAnalyzer:
             logger.warning("skipped %d files exceeding %d bytes during scan", skipped_large, _MAX_SCAN_FILE_BYTES)
         return graph
 
+    _LANGUAGES_WITH_IMPORT_EXTRACTION = {
+        "python",
+        "java",
+        "c",
+        "cpp",
+        "csharp",
+        "javascript",
+        "go",
+        "rust",
+        "php",
+        "ruby",
+        "swift",
+        "kotlin",
+        "scala",
+        "cobol",
+    }
+
     def identify_dead_code(self, graph: DependencyGraph) -> list[str]:
         all_targets = {e["target"] for e in graph.edges}
         dead = []
-        for node_id in graph.nodes:
+        for node_id, node in graph.nodes.items():
             if node_id in all_targets:
                 continue
             if _is_entry_point(node_id):
                 continue
+            if node.get("language", "") not in self._LANGUAGES_WITH_IMPORT_EXTRACTION:
+                continue
             dead.append(node_id)
         return dead
 
+    def dead_code_report(self, graph: DependencyGraph) -> dict[str, list[str]]:
+        all_targets = {e["target"] for e in graph.edges}
+        dead: list[str] = []
+        undetermined: list[str] = []
+        for node_id, node in graph.nodes.items():
+            if node_id in all_targets or _is_entry_point(node_id):
+                continue
+            if node.get("language", "") in self._LANGUAGES_WITH_IMPORT_EXTRACTION:
+                dead.append(node_id)
+            else:
+                undetermined.append(node_id)
+        return {"dead": dead, "undetermined": undetermined}
+
     def estimate_tech_debt(self, graph: DependencyGraph) -> dict[str, Any]:
         total_size = sum(n.get("size_bytes", 0) for n in graph.nodes.values())
+        report = self.dead_code_report(graph)
         return {
             "total_files": len(graph.nodes),
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "dead_files": len(self.identify_dead_code(graph)),
+            "dead_files": len(report["dead"]),
+            "undetermined_files": len(report["undetermined"]),
         }
 
     async def analyze_with_llm(self, code: str, language: str) -> dict[str, Any]:
@@ -186,6 +220,13 @@ class DependencyAnalyzer:
             "csharp": [r"^using\s+([\w.]+)"],
             "javascript": [r'^(import|require)\s+.*?[\'"](.+?)[\'"]'],
             "go": [r'^import\s+["](.+?)["]'],
+            "rust": [r"^use\s+([\w:]+)"],
+            "php": [r"^use\s+([\w\\]+)"],
+            "ruby": [r"^require(?:_relative)?\s+['\"]([^'\"]+)['\"]"],
+            "swift": [r"^import\s+(\w+)"],
+            "kotlin": [r"^import\s+([\w.]+)"],
+            "scala": [r"^import\s+([\w.]+)"],
+            "cobol": [r"^\s*COPY\s+([\"']?[\w\-]+[\"']?)"],
         }
         deps = []
         for pattern in patterns.get(language, []):

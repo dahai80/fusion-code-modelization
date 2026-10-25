@@ -198,6 +198,53 @@ class TestDependencyAnalyzer:
         debt = DependencyAnalyzer().estimate_tech_debt(graph)
         assert debt["total_size_mb"] == 1.5
 
+    @pytest.mark.parametrize(
+        "filename,language,code,expected",
+        [
+            ("lib.rs", "rust", "use std::collections;\nuse serde::Serialize;\n", ["std::collections", "serde::Serialize"]),
+            ("app.swift", "swift", "import Foundation\nimport SwiftUI\n", ["Foundation", "SwiftUI"]),
+            ("Util.kt", "kotlin", "import kotlin.math.abs\nimport java.util.List\n", ["kotlin.math.abs", "java.util.List"]),
+            ("Svc.scala", "scala", "import scala.collection.mutable\n", ["scala.collection.mutable"]),
+            ("boot.php", "php", "use App\\Services\\Mail;\n", ["App\\Services\\Mail"]),
+            ("run.rb", "ruby", "require 'json'\nrequire_relative 'helper'\n", ["json", "helper"]),
+            ("LEGACY.CBL", "cobol", "       COPY CUSTOMER.\n", ["CUSTOMER"]),
+        ],
+    )
+    def test_extract_imports_new_languages(self, filename, language, code, expected):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, filename).write_text(code)
+            analyzer = DependencyAnalyzer()
+            graph = analyzer.scan_directory(tmpdir)
+            assert filename in graph.nodes
+            node = graph.nodes[filename]
+            assert node["language"] == language
+            assert node["dependencies"] == expected
+            assert len(graph.edges) == len(expected)
+
+    def test_dead_code_report_unsupported_language_undetermined(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "main.py").write_text("import helper\n")
+            Path(tmpdir, "helper.py").write_text("def h(): pass\n")
+            Path(tmpdir, "Legacy.bas").write_text("Dim x As Integer\n")
+            analyzer = DependencyAnalyzer()
+            graph = analyzer.scan_directory(tmpdir)
+            dead = analyzer.identify_dead_code(graph)
+            report = analyzer.dead_code_report(graph)
+            assert "Legacy.bas" not in dead
+            assert "Legacy.bas" in report["undetermined"]
+            assert "main.py" not in report["undetermined"]
+            debt = analyzer.estimate_tech_debt(graph)
+            assert debt["undetermined_files"] == 1
+
+    def test_new_language_file_dead_when_unimported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "main.py").write_text("print('entry')\n")
+            Path(tmpdir, "orphan.rs").write_text("use std::collections;\nfn main() {}\n")
+            analyzer = DependencyAnalyzer()
+            graph = analyzer.scan_directory(tmpdir)
+            dead = analyzer.identify_dead_code(graph)
+            assert "orphan.rs" in dead
+
     @pytest.mark.asyncio
     async def test_analyze_with_llm_json_response(self):
         analyzer = DependencyAnalyzer()
