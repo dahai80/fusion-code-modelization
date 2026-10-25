@@ -4,6 +4,23 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] — 2026-10-26
+
+### Fixed
+
+- **Snapshot data loss (#27)**: snapshots now persist full file contents; restoring a first snapshot no longer blanks every file, chained snapshots restore each historical state exactly, and files created after a snapshot are deleted on restore.
+- **Analyzer language coverage (#30)**: dependency import extraction extended from 7 to 14 languages (Rust, PHP, Ruby, Swift, Kotlin, Scala, COBOL added). Dead-code detection no longer flags files in languages without import extraction (TypeScript, VB6) as dead — new `dead_code_report()` reports them as *undetermined*, and `estimate_tech_debt` gains `undetermined_files`.
+- **Hook coverage gaps (#28)**: plain (non-loop) CLI LLM paths (transpile/refactor/test-gen/security/doc-gen/workflow-decompose) now emit POST_LLM (secret scrub + guard verdicts); `SafeWriter` bridges async PRE_WRITE handlers in sync paths instead of skipping them; `--output` strict path containment. GuardBridge degrades to builtin regex fallback when the optional fusion-guard service is unreachable.
+- **Docs over-claims (#29)**: README/README_CN state only verifiable capabilities — local plugin registry (not MCP), local git ops + PR description generation (no Gitee/GitLab/GitHub APIs), no changelog generation, no OPENAI_API_KEY fallback; language matrix documents actual coverage (import extraction 14 langs, static security 3 langs, TS/VB6 undetermined).
+
+### Added
+
+- **Real benchmark measurements (#31)**: `benchmark run --suite code_quality --path <dir>` now measures max cyclomatic complexity (AST), test coverage (pytest --cov), and lint violations (ruff). `BenchmarkItem` gains `lower_is_better`; runner status and report comparison respect metric direction.
+
+### Tests
+
+- 894 tests pass (up from 877); ruff clean.
+
 ## [0.7.2] — 2026-10-25
 
 ### Fixed
