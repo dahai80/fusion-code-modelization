@@ -250,16 +250,16 @@ class TestSnapshotManager:
     def test_restore_rolls_back_on_failure(self, manager, project_dir, monkeypatch):
         snap = manager.create_snapshot(label="baseline")
         (project_dir / "main.py").write_text("print('changed')\n", encoding="utf-8")
-        original = manager._reconstruct_from_diff
+        original = manager._safe_write
         calls = {"n": 0}
 
-        def boom(delta):
+        def boom(target, content):
             calls["n"] += 1
             if calls["n"] >= 2:
                 raise RuntimeError("simulated mid-restore failure")
-            return original(delta)
+            return original(target, content)
 
-        monkeypatch.setattr(manager, "_reconstruct_from_diff", boom)
+        monkeypatch.setattr(manager, "_safe_write", boom)
         result = manager.restore_snapshot(snap.snapshot_id)
         assert result is False
         assert (project_dir / "main.py").read_text(encoding="utf-8") == "print('changed')\n"
@@ -306,3 +306,45 @@ class TestSnapshotManager:
     def test_load_snapshot_rejects_traversal_id(self, manager):
         assert manager.load_snapshot("../../../etc/passwd") is None
         assert manager.delete_snapshot("..%2f..%2f") is False
+
+
+class TestSnapshotRestoreCorrectness:
+    def test_first_snapshot_restore_preserves_content(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "a.txt").write_text("line1\n", encoding="utf-8")
+        (proj / "b.txt").write_text("hello\n", encoding="utf-8")
+        mgr = SnapshotManager(proj, snapshot_dir=tmp_path / "snaps")
+        snap = mgr.create_snapshot(label="first")
+        (proj / "a.txt").write_text("line1\nline2\n", encoding="utf-8")
+        (proj / "b.txt").unlink()
+        assert mgr.restore_snapshot(snap.snapshot_id) is True
+        assert (proj / "a.txt").read_text(encoding="utf-8") == "line1\n"
+        assert (proj / "b.txt").read_text(encoding="utf-8") == "hello\n"
+
+    def test_chained_snapshot_restore_each_state(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "a.txt").write_text("line1\n", encoding="utf-8")
+        mgr = SnapshotManager(proj, snapshot_dir=tmp_path / "snaps")
+        s1 = mgr.create_snapshot(label="s1")
+        (proj / "a.txt").write_text("line1\nline2\n", encoding="utf-8")
+        s2 = mgr.create_snapshot(label="s2")
+        (proj / "a.txt").write_text("line1\nline2\nline3\n", encoding="utf-8")
+        s3 = mgr.create_snapshot(label="s3")
+        assert mgr.restore_snapshot(s2.snapshot_id) is True
+        assert (proj / "a.txt").read_text(encoding="utf-8") == "line1\nline2\n"
+        assert mgr.restore_snapshot(s3.snapshot_id) is True
+        assert (proj / "a.txt").read_text(encoding="utf-8") == "line1\nline2\nline3\n"
+        assert mgr.restore_snapshot(s1.snapshot_id) is True
+        assert (proj / "a.txt").read_text(encoding="utf-8") == "line1\n"
+
+    def test_restore_deletes_files_created_after_snapshot(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "a.txt").write_text("line1\n", encoding="utf-8")
+        mgr = SnapshotManager(proj, snapshot_dir=tmp_path / "snaps")
+        snap = mgr.create_snapshot(label="base")
+        (proj / "extra.txt").write_text("zzz\n", encoding="utf-8")
+        assert mgr.restore_snapshot(snap.snapshot_id) is True
+        assert not (proj / "extra.txt").exists()

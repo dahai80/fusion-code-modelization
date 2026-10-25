@@ -106,8 +106,17 @@ class SnapshotManager:
 
         previous_map: dict[str, str] = {}
         if previous:
-            for d in previous.deltas:
-                previous_map[d.path] = d.diff if not d.is_deleted else ""
+            if previous.files is not None:
+                previous_map = dict(previous.files)
+                previous_map.update({d.path: "" for d in previous.deltas if d.is_deleted})
+            else:
+                from .delta import apply_delta as _apply
+
+                for d in previous.deltas:
+                    if d.is_deleted:
+                        previous_map[d.path] = ""
+                    else:
+                        previous_map[d.path] = _apply("", d)
 
         all_paths = set(current_files.keys()) | set(previous_map.keys())
 
@@ -142,6 +151,7 @@ class SnapshotManager:
             label=label,
             deltas=deltas,
             created_at=time.time(),
+            files=current_files,
         )
         self._save_snapshot(snapshot)
         logger.info("Snapshot created: %s with %d deltas", snapshot_id, len(deltas))
@@ -171,6 +181,22 @@ class SnapshotManager:
 
         applied: list[str] = []
         try:
+            if snapshot.files is not None:
+                current_files = self._collect_files()
+                for rel in current_files:
+                    if rel not in snapshot.files:
+                        target = self._writer.resolve_within(rel)
+                        if target.exists():
+                            target.unlink()
+                            logger.info("Deleted (not in snapshot): %s", rel)
+                for rel, content in snapshot.files.items():
+                    target = self._writer.resolve_within(rel)
+                    if self._safe_write(target, content):
+                        applied.append(rel)
+                logger.info("Snapshot %s restored from full contents (%d files)", snapshot_id, len(applied))
+                if rollback_id:
+                    self.delete_snapshot(rollback_id)
+                return True
             for delta in snapshot.deltas:
                 try:
                     resolved = self._writer.resolve_within(delta.path)
