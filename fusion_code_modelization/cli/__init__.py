@@ -169,7 +169,7 @@ def main():
     cl.add_argument("--require-gpu", action="store_true", help="Require GPU for scheduling")
 
     # plugin
-    pl = sub.add_parser("plugin", help="MCP plugin platform")
+    pl = sub.add_parser("plugin", help="Plugin system (local registry + lifecycle)")
     pl.add_argument("action", choices=["list", "search", "install", "load", "unload", "execute", "status"])
     pl.add_argument("--plugin-id", default="", help="Plugin ID")
     pl.add_argument("--name", default="", help="Plugin name for registration")
