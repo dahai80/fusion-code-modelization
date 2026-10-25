@@ -240,7 +240,7 @@ pip install -e ".[server]"
 fusion-code-modelization serve --port 11459
 
 # Or via the module
-python -m fusion_code_modelization.server.runner
+python -m fusion_code_modelization.server
 ```
 
 | Method | Endpoint | Purpose |

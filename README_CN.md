@@ -254,7 +254,7 @@ pip install -e ".[server]"
 fusion-code-modelization serve --port 11459
 
 # 或通过模块
-python -m fusion_code_modelization.server.runner
+python -m fusion_code_modelization.server
 ```
 
 | 方法 | 端点 | 用途 |
