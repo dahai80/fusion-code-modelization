@@ -41,7 +41,7 @@ cmd_start() {
     fi
     mkdir -p "$LOG_DIR"
     log_info "starting on ${HOST}:${PORT} (mlx=${MLX_URL})"
-    nohup "$PYTHON" -m fusion_code_modelization.server.runner \
+    nohup "$PYTHON" -m fusion_code_modelization.server \
         --host "$HOST" --port "$PORT" --mlx-url "$MLX_URL" \
         >"$STDOUT_LOG" 2>"$STDERR_LOG" &
     local pid=$!

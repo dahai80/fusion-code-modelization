@@ -14,6 +14,8 @@ class _FakeGatewayResp:
 
 
 class _FakeGatewayClient:
+    last_headers = None
+
     def __init__(self, *args, **kwargs):
         pass
 
@@ -23,7 +25,8 @@ class _FakeGatewayClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def get(self, url):
+    async def get(self, url, headers=None):
+        _FakeGatewayClient.last_headers = headers or {}
         return _FakeGatewayResp()
 
 
@@ -51,7 +54,7 @@ class TestServerHealth:
             async def __aexit__(self, *exc):
                 return False
 
-            async def get(self, url):
+            async def get(self, url, headers=None):
                 raise OSError("connection refused")
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -64,6 +67,33 @@ class TestServerHealth:
                 resp = client.get("/health")
             assert resp.status_code == 503
             assert resp.json()["status"] == "degraded"
+
+    def test_health_sends_gateway_auth_header(self, monkeypatch):
+        monkeypatch.setenv("FUSION_MLX_API_KEY", "test-gateway-key")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir)
+            client = TestClient(app)
+            with patch(
+                "fusion_code_modelization.server.app.httpx.AsyncClient",
+                _FakeGatewayClient,
+            ):
+                resp = client.get("/health")
+            assert resp.status_code == 200
+            assert _FakeGatewayClient.last_headers == {"Authorization": "Bearer test-gateway-key"}
+
+    def test_health_no_auth_header_without_key(self, monkeypatch):
+        monkeypatch.delenv("FUSION_MLX_API_KEY", raising=False)
+        monkeypatch.delenv("MLX_API_KEY", raising=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app = create_app(base_dir=tmpdir)
+            client = TestClient(app)
+            with patch(
+                "fusion_code_modelization.server.app.httpx.AsyncClient",
+                _FakeGatewayClient,
+            ):
+                resp = client.get("/health")
+            assert resp.status_code == 200
+            assert _FakeGatewayClient.last_headers == {}
 
     def test_metrics_endpoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:

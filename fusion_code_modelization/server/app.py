@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from fusion_code_modelization import __version__
-from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, _resolve_api_key
 from fusion_code_modelization.session import SessionEngine, SessionStore
 from fusion_code_modelization.workflow import WorkflowExecutor
 
@@ -162,6 +162,7 @@ def create_app(
     app = FastAPI(title="Fusion-Code-Modelization REST API", version=__version__, lifespan=lifespan)
     engine = SessionEngine(store=SessionStore(base_dir=base_dir) if base_dir else SessionStore())
     gateway_url = mlx_url or DEFAULT_GATEWAY_URL
+    gateway_api_key = _resolve_api_key()
     executor = WorkflowExecutor(mlx_url=gateway_url)
     expected_key = api_key if api_key is not None else _resolve_server_api_key()
     limiter = _RateLimiter(max_requests=rate_limit)
@@ -222,8 +223,9 @@ def create_app(
         healthy = True
 
         try:
+            headers = {"Authorization": f"Bearer {gateway_api_key}"} if gateway_api_key else {}
             async with httpx.AsyncClient(timeout=3.0) as hc:
-                resp = await hc.get(f"{gateway_url.rstrip('/')}/models")
+                resp = await hc.get(f"{gateway_url.rstrip('/')}/models", headers=headers)
             if resp.status_code == 200:
                 checks["gateway"] = "ok"
             else:
