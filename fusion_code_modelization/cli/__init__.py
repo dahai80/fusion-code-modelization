@@ -330,9 +330,7 @@ async def _scrub_llm_result(result: dict, keys: tuple[str, ...], hooks=None) -> 
             scrubbed_items = []
             for item in value:
                 if isinstance(item, dict) and isinstance(item.get("description"), str):
-                    decision = await registry.emit(
-                        HookEvent.POST_LLM, {"content": item["description"], "action": key}
-                    )
+                    decision = await registry.emit(HookEvent.POST_LLM, {"content": item["description"], "action": key})
                     if decision.action == HookAction.DENY:
                         logger.warning("POST_LLM denied %s finding: %s", key, decision.reason)
                         return {**result, "status": "failed", "error": f"hook_denied:{decision.reason}"}
@@ -627,9 +625,7 @@ async def _cmd_workflow(args):
         plan = await decomposer.decompose(args.description, template=args.template)
         if not getattr(args, "no_hooks", False):
             for st in plan.subtasks:
-                decision = await _cli_hooks().emit(
-                    HookEvent.POST_LLM, {"content": st.title, "action": "subtask_title"}
-                )
+                decision = await _cli_hooks().emit(HookEvent.POST_LLM, {"content": st.title, "action": "subtask_title"})
                 if decision.action == HookAction.MODIFY and decision.modified_content is not None:
                     st.title = decision.modified_content
         print(f"Plan: {plan.goal} ({len(plan.subtasks)} tasks)")
@@ -865,23 +861,131 @@ def _cmd_plugin(args):
         print(json.dumps(status, indent=2))
 
 
+def _collect_py_files(path: str) -> list[Path]:
+    root = Path(path)
+    if root.is_file():
+        return [root] if root.suffix == ".py" else []
+    if not root.is_dir():
+        return []
+    return [p for p in root.rglob("*.py") if ".venv" not in p.parts]
+
+
+def _measure_max_cyclomatic_complexity(py_files: list[Path]) -> float:
+    import ast
+
+    max_cc = 0.0
+    for p in py_files:
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError as e:
+            logger.warning("complexity parse failed for %s: %s", p, e)
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                cc = 1
+                for child in ast.walk(node):
+                    if isinstance(
+                        child, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler, ast.Assert, ast.Match)
+                    ):
+                        cc += 1
+                    elif isinstance(child, ast.BoolOp):
+                        cc += len(child.values) - 1
+                    elif isinstance(child, ast.IfExp):
+                        cc += 1
+                max_cc = max(max_cc, float(cc))
+    return max_cc
+
+
+def _measure_test_coverage(path: str, cov_json: Path) -> float | None:
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        str(path),
+        "--cov",
+        str(path),
+        "--cov-report",
+        f"json:{cov_json}",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("test_coverage measurement failed: %s", e)
+        return None
+    if not cov_json.exists():
+        logger.warning("test_coverage: coverage report not produced")
+        return None
+    try:
+        data = json.loads(cov_json.read_text(encoding="utf-8"))
+        return round(float(data["totals"]["percent_covered"]), 1)
+    except (ValueError, KeyError, TypeError) as e:
+        logger.warning("test_coverage: failed to parse coverage report: %s", e)
+        return None
+
+
+def _measure_lint_violations(path: str) -> float | None:
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, "-m", "ruff", "check", str(path), "--output-format", "json"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning("lint_violations measurement failed (ruff unavailable?): %s", e)
+        return None
+    if proc.returncode not in (0, 1):
+        logger.warning("lint_violations: ruff exited %d: %s", proc.returncode, proc.stderr[:200])
+        return None
+    try:
+        findings = json.loads(proc.stdout or "[]")
+        return float(len(findings))
+    except ValueError as e:
+        logger.warning("lint_violations: failed to parse ruff output: %s", e)
+        return None
+
+
 def _build_score_fn(suite_name: str, path: str) -> dict:
     import py_compile
+    import tempfile
 
     root = Path(path)
     score_fn: dict = {}
-    if suite_name == "migration_quality" and root.is_dir():
-        py_files = [p for p in root.rglob("*.py") if ".venv" not in p.parts]
-        if py_files:
-            passed = 0
-            for p in py_files:
-                try:
-                    py_compile.compile(str(p), doraise=True)
-                    passed += 1
-                except py_compile.PyCompileError as e:
-                    logger.warning("syntax check failed for %s: %s", p, e)
-            score_fn["syntax_correctness"] = round(passed / len(py_files) * 100, 1)
-            print(f"  syntax_correctness: {passed}/{len(py_files)} python files compile")
+    if not root.exists():
+        logger.warning("benchmark path not found: %s", path)
+        return score_fn
+    py_files = _collect_py_files(path)
+    if suite_name == "migration_quality" and py_files:
+        passed = 0
+        for p in py_files:
+            try:
+                py_compile.compile(str(p), doraise=True)
+                passed += 1
+            except py_compile.PyCompileError as e:
+                logger.warning("syntax check failed for %s: %s", p, e)
+        score_fn["syntax_correctness"] = round(passed / len(py_files) * 100, 1)
+        print(f"  syntax_correctness: {passed}/{len(py_files)} python files compile")
+    elif suite_name == "code_quality":
+        if not py_files:
+            logger.warning("code_quality: no python files under %s", path)
+            return score_fn
+        cc = _measure_max_cyclomatic_complexity(py_files)
+        score_fn["cyclomatic_complexity"] = cc
+        print(f"  cyclomatic_complexity: max {cc:.0f} across {len(py_files)} files")
+        with tempfile.TemporaryDirectory(prefix="fcm_bench_") as tmpdir:
+            cov = _measure_test_coverage(path, Path(tmpdir) / "coverage.json")
+        if cov is not None:
+            score_fn["test_coverage"] = cov
+            print(f"  test_coverage: {cov}%")
+        lint = _measure_lint_violations(path)
+        if lint is not None:
+            score_fn["lint_violations"] = lint
+            print(f"  lint_violations: {lint:.0f} ruff findings")
     return score_fn
 
 

@@ -60,7 +60,7 @@ class BenchmarkRunner:
         if not item:
             logger.error("Item not found: %s in suite %s", item_name, suite_name)
             return BenchmarkResult()
-        status = BenchmarkStatus.PASSED if score >= item.target_score else BenchmarkStatus.FAILED
+        status = self._status_for(item, score)
         result = BenchmarkResult(
             item_id=item.item_id,
             suite_id=suite.suite_id,
@@ -74,12 +74,18 @@ class BenchmarkRunner:
         )
         return result
 
+    @staticmethod
+    def _status_for(item, score: float) -> BenchmarkStatus:
+        if getattr(item, "lower_is_better", False):
+            return BenchmarkStatus.PASSED if score <= item.target_score else BenchmarkStatus.FAILED
+        return BenchmarkStatus.PASSED if score >= item.target_score else BenchmarkStatus.FAILED
+
     def _run_item(self, item, suite_id: str, score_fn: dict | None = None) -> BenchmarkResult:
         start = time.monotonic()
         if score_fn and item.name in score_fn:
             try:
                 score = float(score_fn[item.name])
-                status = BenchmarkStatus.PASSED if score >= item.target_score else BenchmarkStatus.FAILED
+                status = self._status_for(item, score)
             except (ValueError, TypeError):
                 score = 0.0
                 status = BenchmarkStatus.ERROR
@@ -111,6 +117,12 @@ class BenchmarkRunner:
     def compare_reports(self, report_a: BenchmarkReport, report_b: BenchmarkReport) -> dict:
         a_scores = {r.item_id: r for r in report_a.results}
         b_scores = {r.item_id: r for r in report_b.results}
+        lower_better_ids = {
+            i.item_id
+            for s in list(self._suites.values()) + list(self._custom_suites.values())
+            for i in s.items
+            if getattr(i, "lower_is_better", False)
+        }
         regressions = []
         improvements = []
         unchanged = []
@@ -121,12 +133,12 @@ class BenchmarkRunner:
             b_val = b_scores[item_id].score
             diff = b_val - a_val
             entry = {"item_id": item_id, "a_score": a_val, "b_score": b_val, "diff": diff}
-            if diff > 0:
-                improvements.append(entry)
-            elif diff < 0:
+            if diff == 0:
+                unchanged.append(entry)
+            elif (diff > 0) == (item_id in lower_better_ids):
                 regressions.append(entry)
             else:
-                unchanged.append(entry)
+                improvements.append(entry)
         result = {
             "report_a": report_a.report_id,
             "report_b": report_b.report_id,

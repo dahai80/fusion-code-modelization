@@ -201,9 +201,19 @@ class TestDependencyAnalyzer:
     @pytest.mark.parametrize(
         "filename,language,code,expected",
         [
-            ("lib.rs", "rust", "use std::collections;\nuse serde::Serialize;\n", ["std::collections", "serde::Serialize"]),
+            (
+                "lib.rs",
+                "rust",
+                "use std::collections;\nuse serde::Serialize;\n",
+                ["std::collections", "serde::Serialize"],
+            ),
             ("app.swift", "swift", "import Foundation\nimport SwiftUI\n", ["Foundation", "SwiftUI"]),
-            ("Util.kt", "kotlin", "import kotlin.math.abs\nimport java.util.List\n", ["kotlin.math.abs", "java.util.List"]),
+            (
+                "Util.kt",
+                "kotlin",
+                "import kotlin.math.abs\nimport java.util.List\n",
+                ["kotlin.math.abs", "java.util.List"],
+            ),
             ("Svc.scala", "scala", "import scala.collection.mutable\n", ["scala.collection.mutable"]),
             ("boot.php", "php", "use App\\Services\\Mail;\n", ["App\\Services\\Mail"]),
             ("run.rb", "ruby", "require 'json'\nrequire_relative 'helper'\n", ["json", "helper"]),

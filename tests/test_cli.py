@@ -180,6 +180,22 @@ class TestCLI:
         out = capsys.readouterr().out
         assert "suite_a" in out
 
+    def test_benchmark_code_quality_real_measurements(self, capsys, tmp_path):
+        (tmp_path / "sample.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        (tmp_path / "test_sample.py").write_text(
+            "from sample import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n", encoding="utf-8"
+        )
+        _run_cli("benchmark", "run", "--suite", "code_quality", "--path", str(tmp_path))
+
+        out = capsys.readouterr().out
+        assert "cyclomatic_complexity: max" in out
+        assert "test_coverage:" in out
+        assert "lint_violations:" in out
+        assert "Skipped: 2" in out
+        assert "[passed] " in out
+        skipped = sum(1 for line in out.splitlines() if "[skipped]" in line)
+        assert skipped == 2
+
     def test_benchmark_run(self, capsys):
         fake_result = MagicMock()
         fake_result.status = MagicMock(value="passed")
