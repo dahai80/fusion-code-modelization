@@ -106,6 +106,12 @@ class PipelineIntegrator:
                 "files_changed": len(changes),
                 "status": "created",
             }
+            self.trace_artifact(
+                "code_change",
+                branch_name,
+                title,
+                metadata={"files_changed": len(changes), "branch": branch_name},
+            )
             self._log("create_pr", "pipeline", branch_name, "success", str(pr_info))
             return pr_info
         except Exception as e:

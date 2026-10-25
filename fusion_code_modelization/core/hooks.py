@@ -146,12 +146,28 @@ def secret_scrub(payload: dict[str, Any]) -> HookDecision:
 
 
 def audit_log(payload: dict[str, Any]) -> HookDecision:
-    logger.info(
-        "audit_hook event=%s action=%s target=%s",
-        payload.get("event", "?"),
-        payload.get("action", "?"),
-        str(payload.get("path", payload.get("command", "")))[:120],
-    )
+    event = str(payload.get("event", "?"))
+    action = str(payload.get("action", "?"))
+    target = str(payload.get("path", payload.get("command", "")))[:120]
+    logger.info("audit_hook event=%s action=%s target=%s", event, action, target)
+    try:
+        from fusion_code_modelization.audit import AuditAction, AuditLogger
+
+        audit_logger = AuditLogger()
+        if "WRITE" in event.upper():
+            audit_action = AuditAction.FILE_WRITE
+        elif "EXEC" in event.upper():
+            audit_action = AuditAction.COMMAND_EXEC
+        else:
+            audit_action = AuditAction.CUSTOM
+        audit_logger.log_operation(
+            action=audit_action,
+            target=target or "unknown",
+            actor="hooks",
+            details={"event": event, "hook_action": action},
+        )
+    except Exception as e:
+        logger.warning("audit_hook persistence failed (allowing, hook is log-only): %s", e)
     return HookDecision(action=HookAction.ALLOW)
 
 
