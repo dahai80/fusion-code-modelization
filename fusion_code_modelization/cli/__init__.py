@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fusion_code_modelization import __version__ as VERSION
 from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT, GATEWAY_PORT
-from fusion_code_modelization.core.hooks import default_registry
+from fusion_code_modelization.core.hooks import HookAction, HookEvent, default_registry
 
 logger = logging.getLogger("fusion_code_modelization")
 
@@ -301,7 +301,7 @@ def _configure_logging(args):
 def _write_output(output: str, content: str, hooks=None) -> bool:
     from fusion_code_modelization.core.safe_writer import SafeWriter, UnsafePathError
 
-    writer = SafeWriter(Path(".").resolve(), registry=hooks or _cli_hooks(), strict=False)
+    writer = SafeWriter(Path(".").resolve(), registry=hooks or _cli_hooks(), strict=True)
     try:
         writer.write_text(output, content)
         return True
@@ -309,6 +309,44 @@ def _write_output(output: str, content: str, hooks=None) -> bool:
         logger.error("output write blocked: %s", e)
         print(f"Error: output path blocked: {e}")
         return False
+
+
+async def _scrub_llm_result(result: dict, keys: tuple[str, ...], hooks=None) -> dict:
+    registry = hooks or _cli_hooks()
+    if not isinstance(result, dict) or result.get("status") != "completed":
+        return result
+    for key in keys:
+        value = result.get(key)
+        if not value:
+            continue
+        if isinstance(value, str):
+            decision = await registry.emit(HookEvent.POST_LLM, {"content": value, "action": key})
+            if decision.action == HookAction.DENY:
+                logger.warning("POST_LLM denied %s: %s", key, decision.reason)
+                return {**result, "status": "failed", "error": f"hook_denied:{decision.reason}"}
+            if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                result = {**result, key: decision.modified_content}
+        elif isinstance(value, list):
+            scrubbed_items = []
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("description"), str):
+                    decision = await registry.emit(
+                        HookEvent.POST_LLM, {"content": item["description"], "action": key}
+                    )
+                    if decision.action == HookAction.DENY:
+                        logger.warning("POST_LLM denied %s finding: %s", key, decision.reason)
+                        return {**result, "status": "failed", "error": f"hook_denied:{decision.reason}"}
+                    if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                        item = {**item, "description": decision.modified_content}
+                scrubbed_items.append(item)
+            result = {**result, key: scrubbed_items}
+    return result
+
+
+async def _hook_scrub(args, result: dict, keys: tuple[str, ...]) -> dict:
+    if getattr(args, "no_hooks", False):
+        return result
+    return await _scrub_llm_result(result, keys)
 
 
 def _cmd_version():
@@ -386,6 +424,7 @@ async def _cmd_transpile(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await transpiler.transpile(code, args.source_lang, args.target_lang)
+        result = await _hook_scrub(args, result, ("code",))
         if result["status"] == "completed":
             output = result["code"]
             if args.output:
@@ -437,6 +476,7 @@ async def _cmd_refactor(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await refactorer.refactor(code, lang, args.instructions)
+        result = await _hook_scrub(args, result, ("refactored",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["refactored"]):
                 print(f"Refactored code saved to {args.output}")
@@ -485,6 +525,7 @@ async def _cmd_test_gen(args):
             print(f"Error: {result.get('error', 'Unknown') if result else 'No result'}")
     else:
         result = await generator.generate_unit_tests(code, lang)
+        result = await _hook_scrub(args, result, ("tests",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["tests"]):
                 print(f"Tests saved to {args.output}")
@@ -522,6 +563,7 @@ async def _cmd_security(args):
                 _write_output(args.output, json.dumps(result, indent=2))
     else:
         result = await scanner.scan(code, lang)
+        result = await _hook_scrub(args, result, ("findings",))
         print(f"Found {result['total_findings']} issue(s):")
         for f in result.get("findings", []):
             print(f"  [{f['severity']}] Line {f['line']}: {f['description']}")
@@ -583,6 +625,13 @@ async def _cmd_workflow(args):
     if args.action == "decompose":
         decomposer = TaskDecomposer()
         plan = await decomposer.decompose(args.description, template=args.template)
+        if not getattr(args, "no_hooks", False):
+            for st in plan.subtasks:
+                decision = await _cli_hooks().emit(
+                    HookEvent.POST_LLM, {"content": st.title, "action": "subtask_title"}
+                )
+                if decision.action == HookAction.MODIFY and decision.modified_content is not None:
+                    st.title = decision.modified_content
         print(f"Plan: {plan.goal} ({len(plan.subtasks)} tasks)")
         for t in plan.subtasks:
             deps = ", ".join(t.depends_on) if t.depends_on else "none"
@@ -681,6 +730,7 @@ async def _cmd_doc_gen(args):
             result = await gen.generate_api_docs(code, lang)
         else:
             result = await gen.generate_docs(code, lang, doc_type=args.doc_type)
+        result = await _hook_scrub(args, result, ("documentation",))
         if result["status"] == "completed":
             if args.output and _write_output(args.output, result["documentation"]):
                 print(f"Docs saved to {args.output}")

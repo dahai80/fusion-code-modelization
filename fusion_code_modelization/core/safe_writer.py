@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import inspect
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from .hooks import HookAction, HookDecision, HookEvent, HookRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _run_awaitable_sync(awaitable: Any) -> Any:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, awaitable).result()
 
 
 class UnsafePathError(PermissionError):
@@ -48,9 +59,8 @@ class SafeWriter:
             try:
                 decision = handler.execute(payload)
                 if inspect.isawaitable(decision):
-                    logger.debug("skipping async PRE_WRITE handler in sync path: %s", handler.name)
-                    cast("Any", decision).close()
-                    continue
+                    logger.debug("bridging async PRE_WRITE handler to sync: %s", handler.name)
+                    decision = _run_awaitable_sync(decision)
             except Exception as e:
                 logger.error("hook %s raised: %s", handler.name, e)
                 raise UnsafePathError(f"hook_exception:{handler.name}:{e}") from e
