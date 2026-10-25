@@ -251,11 +251,11 @@ class TestSnapshotManager:
         snap = manager.create_snapshot(label="baseline")
         (project_dir / "main.py").write_text("print('changed')\n", encoding="utf-8")
         original = manager._safe_write
-        calls = {"n": 0}
+        failed = {"once": False}
 
         def boom(target, content):
-            calls["n"] += 1
-            if calls["n"] >= 2:
+            if target.name == "util.py" and not failed["once"]:
+                failed["once"] = True
                 raise RuntimeError("simulated mid-restore failure")
             return original(target, content)
 
