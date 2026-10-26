@@ -4,6 +4,16 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.4] — 2026-10-26
+
+### Fixed
+
+- **CI-reality governance false positive (#33)**: verified against the live repo that GitHub Actions is enabled (`allowed_actions: all`) with 39 recorded runs — the survey's "Actions disabled / workflows never executed" finding came from a jq bug (`.runs` vs `workflow_runs` → null misread as 404). Latest run on the v0.7.3 commit (9b41f96) is green across all 5 jobs and exercises the CLI smoke suite (`test_cli_smoke.py`, 46 tests). No code changes; verification-only patch release.
+
+### Removed
+
+- Stale remote branch `fix/backlog-27-31` (leftover tracking ref from squash-merged PR #32).
+
 ## [0.7.3] — 2026-10-26
 
 ### Fixed
