@@ -62,17 +62,18 @@
 ### 认证与模型 ID
 
 <!-- auth-model -->
-所有推理经 **fusion-gateway**（`localhost:11432/v1`）路由；本包**不**直连 fusion-mlx（`localhost:11434`）。`MLXClient` 用 bearer token 向网关认证。API key 按优先级解析（首个非空胜出）：
+所有推理经 **fusion-gateway**（`localhost:11432/v1`）路由；本包**不**直连 fusion-mlx（`localhost:11434`）。`MLXClient` 用 bearer token 向网关认证。密钥解析委托给 `fusion_core.config.client_key()`（单点解析，见 `architecture/config-conventions.md`），按优先级解析（首个非空胜出）：
 
-1. `FUSION_MLX_API_KEY` 环境变量 —— **网关客户端密钥**（如 `fg-admin-key`）
-2. `MLX_API_KEY` 环境变量
+1. `FUSION_CLIENT_KEY` 环境变量 —— **网关客户端密钥**
+2. `FUSION_MLX_API_KEY` 环境变量（废弃别名，迁移期警告）
+3. `MLX_API_KEY` 环境变量（废弃别名，迁移期警告）
 
-> ⚠️ 该密钥必须是 fusion-gateway `config.yaml`（`auth.api_keys`）中注册的网关客户端密钥，**不是** fusion-mlx 上游密钥。未设置则以无认证方式请求，网关会拒绝。**不**读取 `OPENAI_API_KEY`。
+> ⚠️ 该密钥必须是 fusion-gateway `config.yaml`（`auth.api_keys`）中注册的网关客户端密钥，**不是** fusion-mlx 上游密钥，也**不是** `fg-admin-key` 这类占位符。未设置则以无认证方式请求，网关会拒绝；`FUSION_PROFILE=prod` 下缺失直接 `RuntimeError`。**不**读取 `OPENAI_API_KEY`。
 
 默认本地模型 id 为 `Qwen3.5-9B-4bit`（须与网关 fusion-mlx 上游加载的模型一致 —— 用 `~/claude-home/fusion-mlx/start.sh status` 查看）。按调用覆盖：`MLXClient(...).chat(model=...)`，或构造自定义 `ModelConfig`。
 
 ```bash
-export FUSION_MLX_API_KEY="<网关客户端密钥>"   # 如 fg-admin-key
+export FUSION_CLIENT_KEY="<网关客户端密钥>"   # 经网关管理接口获取
 ```
 
 ### 安装

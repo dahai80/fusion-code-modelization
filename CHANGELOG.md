@@ -4,7 +4,19 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.4] — 2026-10-26
+## [0.7.5] — 2026-10-28
+
+### Fixed
+
+- **Process title (#34)**: the REST API server process now shows as `fusion-code-modelization serve :<port>` in `ps`/Activity Monitor instead of bare `Python`. Implemented via `fusion_core.set_process_title()` (setproctitle with try/except fallback) at the single `run_server()` entrypoint, which covers `start.sh`, `fusion-code-modelization serve`, and `python -m fusion_code_modelization.server`. `setproctitle` is inherited from the fusion-core dependency; start.sh PID/kill/health logic unaffected (verified live).
+
+### Changed
+
+- **Single-point config resolution (#35)**: API-key resolution now delegates to `fusion_core.config.client_key()` (config-conventions Phase 2.2) instead of hand-rolled `_resolve_api_key()` / `_resolve_server_api_key()`. Resolution order: `FUSION_CLIENT_KEY` → `FUSION_MLX_API_KEY` (deprecated alias, warns) → `MLX_API_KEY` (deprecated alias, warns); dev missing key = empty + warning, `FUSION_PROFILE=prod` missing key = `RuntimeError`. The REST server's client-auth token and the gateway client key are now the same secret (`FUSION_CLIENT_KEY`); `FUSION_SERVER_API_KEY` is no longer consulted. `scripts/check-env.py` reports 0 findings for this repo; `grep 'def _resolve.*key'` returns nothing.
+
+### Docs
+
+- README / README_CN / docs/operations.md updated to `FUSION_CLIENT_KEY` (removed the `fg-admin-key` placeholder example — audit 1025 §1.5 repeat offender).
 
 ### Fixed
 

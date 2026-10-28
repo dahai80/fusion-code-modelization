@@ -4,6 +4,8 @@ import logging
 import os
 import socket
 
+from fusion_core import set_process_title
+
 from ..core.config import DEFAULT_GATEWAY_URL, DEFAULT_SERVER_PORT
 from .app import create_app
 
@@ -39,6 +41,7 @@ def run_server(
 ) -> None:
     import uvicorn
 
+    set_process_title(f"fusion-code-modelization serve :{port}")
     _configure_logging()
     if not allow_nonloopback and not _is_loopback(host):
         logger.error("refusing non-loopback host %s (use allow_nonloopback=True to override)", host)

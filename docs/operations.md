@@ -27,16 +27,18 @@ Production operations guide for the fusion-code-modelization REST API server.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| Variable | Default | Purpose |
+|---|---|---|
 | `FUSION_FCM_HOST` | `127.0.0.1` | bind host (non-loopback requires `--allow-nonloopback`) |
 | `FUSION_FCM_PORT` | `11459` | bind port |
 | `FUSION_GATEWAY_URL` | `http://localhost:11432/v1` | inference gateway URL |
 | `FUSION_MODEL_ID` | `Qwen3.5-9B-4bit` | model id (must match a gateway-loaded model) |
 | `FUSION_TIMEOUT` | `120.0` | per-request LLM timeout (seconds) |
 | `FUSION_RETRY_ATTEMPTS` | `2` | LLM retry count on transient failure |
-| `FUSION_SERVER_API_KEY` | (none) | bearer token clients must present; falls back to `FUSION_MLX_API_KEY` then `MLX_API_KEY`; empty = auth disabled |
+| `FUSION_CLIENT_KEY` | (none) | gateway client key (via `fusion_core.config.client_key()`); also the bearer token REST clients must present unless `api_key` is passed to `create_app`; deprecated aliases `FUSION_MLX_API_KEY` / `MLX_API_KEY` still accepted with a warning; empty = auth disabled (dev only; `FUSION_PROFILE=prod` requires it) |
 | `FUSION_LOG_LEVEL` | `INFO` | root log level |
 
-> **Security:** bind loopback only by default. To expose on a LAN, pass `--allow-nonloopback` and **set `FUSION_SERVER_API_KEY`** — unauthenticated non-loopback exposure is rejected.
+> **Security:** bind loopback only by default. To expose on a LAN, pass `--allow-nonloopback` and **set `FUSION_CLIENT_KEY`** — unauthenticated non-loopback exposure is rejected.
 
 ## Deployment runbook
 
@@ -102,7 +104,7 @@ source /Users/dahai/fusion/.venv/bin/activate          # create via repo root sc
 pip install -e fusion-core
 pip install -e ".[server]"                             # server extras only for prod
 # set secrets (see Secret management & rotation)
-export FUSION_SERVER_API_KEY="<key>"                   # registered in gateway config.yaml
+export FUSION_CLIENT_KEY="<key>"                        # registered in gateway config.yaml
 ./start.sh start
 ./start.sh status
 ```
@@ -181,7 +183,7 @@ No persistent storage in-process — counters reset on restart. Persist deltas e
 
 ## Secret management & rotation
 
-This server authenticates clients with a single bearer token (`FUSION_SERVER_API_KEY`, falling back to `FUSION_MLX_API_KEY` then `MLX_API_KEY`). The token must also be registered in **fusion-gateway** `config.yaml` `auth.api_keys` (the gateway uses it to authorize the upstream inference call). One secret, two places that must agree.
+This server authenticates clients with a single bearer token (`FUSION_CLIENT_KEY`, resolved via `fusion_core.config.client_key()`; deprecated aliases `FUSION_MLX_API_KEY` / `MLX_API_KEY` still work with a warning). The token must also be registered in **fusion-gateway** `config.yaml` `auth.api_keys` (the gateway uses it to authorize the upstream inference call). One secret, two places that must agree.
 
 ### Rotation procedure
 
@@ -209,12 +211,12 @@ Rotate on a schedule (every 90 days), after team turnover, or on suspected leak.
 
    Reload the gateway per its docs (restart or SIGHUP).
 
-3. **Roll clients** to the new key: update each client's `FUSION_SERVER_API_KEY` (or `Authorization: Bearer` header) and restart them. Old key still works, so no client downtime.
+3. **Roll clients** to the new key: update each client's `FUSION_CLIENT_KEY` (or `Authorization: Bearer` header) and restart them. Old key still works, so no client downtime.
 
 4. **Switch the server** to the new key:
 
    ```bash
-   export FUSION_SERVER_API_KEY="$NEW_KEY"
+   export FUSION_CLIENT_KEY="$NEW_KEY"
    ./start.sh restart
    ./start.sh status          # confirm health: ok
    ```
@@ -237,7 +239,7 @@ Rotate on a schedule (every 90 days), after team turnover, or on suspected leak.
   `/etc/fusion/fcm.env`:
 
   ```sh
-  FUSION_SERVER_API_KEY=<key>
+  FUSION_CLIENT_KEY=<key>
   FUSION_GATEWAY_URL=http://localhost:11432/v1
   ```
 
@@ -250,7 +252,7 @@ Rotate on a schedule (every 90 days), after team turnover, or on suspected leak.
 | `/health` → 503 `gateway: unreachable` | fusion-gateway down or wrong `FUSION_GATEWAY_URL` | `curl {gateway_url}/models`; start gateway |
 | `/health` → 503 `gateway: HTTP 404` | gateway up but `/models` route missing | check gateway version/config |
 | `/health` → 503 `disk: low` | <1 GB free on home volume | free disk |
-| chat → 401 `invalid or missing bearer token` | `FUSION_SERVER_API_KEY` set, client lacked/mismatched token | send `Authorization: Bearer <key>` |
+| chat → 401 `invalid or missing bearer token` | `FUSION_CLIENT_KEY` set, client lacked/mismatched token | send `Authorization: Bearer <key>` |
 | chat → 400 `empty_content` | LLM returned blank response (issue #14 guard) | retry; if persistent, check model load |
 | chat → 429 `rate limit exceeded` | >60 req/min from one client IP | reduce rate or raise `rate_limit` in `create_app()` |
 | `start.sh start` → "process exited early" | import error or port in use | `./start.sh log`; check `STDERR_LOG` |
@@ -278,7 +280,7 @@ See **Rollback (release bad)** under [Deployment runbook](#deployment-runbook) �
 Issues requiring upstream fixes (file issues at the respective repo, then PR):
 
 1. **fusion-gateway `/models` route** — required for the `/health` deep probe. If a gateway version omits it, `/health` always reports `degraded`. Verify gateway exposes `GET /v1/models` returning 200.
-2. **fusion-gateway auth key registration** — `FUSION_SERVER_API_KEY` must be registered in the gateway's `config.yaml` `auth.api_keys`; it is **not** the fusion-mlx key. Mismatch → gateway 401 on inference.
+2. **fusion-gateway auth key registration** — `FUSION_CLIENT_KEY` must be registered in the gateway's `config.yaml` `auth.api_keys`; it is **not** the fusion-mlx key. Mismatch → gateway 401 on inference.
 3. **fusion-mlx model id** — `DEFAULT_LOCAL_MODEL` (`Qwen3.5-9B-4bit`) must match a model the gateway's fusion-mlx upstream has loaded. Mismatch → inference failures. Verify via `~/claude-home/fusion-mlx/start.sh status`.
 
 When an upstream gap blocks this package, follow the monorepo flow: open an issue on the upstream project first, then a PR — do not patch upstream code from this repo.

@@ -59,17 +59,18 @@ Modernize, refactor, and migrate legacy codebases — entirely local, powered by
 
 ### Authentication & Model ID
 
-All inference is routed through **fusion-gateway** (`localhost:11432/v1`); this package never connects to fusion-mlx (`localhost:11434`) directly. `MLXClient` authenticates to the gateway with a bearer token. The API key is resolved in priority order (first non-empty wins):
+All inference is routed through **fusion-gateway** (`localhost:11432/v1`); this package never connects to fusion-mlx (`localhost:11434`) directly. `MLXClient` authenticates to the gateway with a bearer token. Key resolution is delegated to `fusion_core.config.client_key()` (single-point resolution, `architecture/config-conventions.md`), priority order (first non-empty wins):
 
-1. `FUSION_MLX_API_KEY` environment variable — the **gateway client key** (e.g. `fg-admin-key`)
-2. `MLX_API_KEY` environment variable
+1. `FUSION_CLIENT_KEY` environment variable — the **gateway client key**
+2. `FUSION_MLX_API_KEY` environment variable (deprecated alias, migration-period warning)
+3. `MLX_API_KEY` environment variable (deprecated alias, migration-period warning)
 
-> ⚠️ The key must be a gateway client key registered in fusion-gateway's `config.yaml` (`auth.api_keys`), **not** the fusion-mlx upstream key. If none is set, requests run unauthenticated and the gateway will reject them. `OPENAI_API_KEY` is **not** consulted.
+> ⚠️ The key must be a gateway client key registered in fusion-gateway's `config.yaml` (`auth.api_keys`), **not** the fusion-mlx upstream key and **not** a placeholder like `fg-admin-key`. If none is set, requests run unauthenticated and the gateway will reject them; with `FUSION_PROFILE=prod` a missing key raises `RuntimeError` instead. `OPENAI_API_KEY` is **not** consulted.
 
 The default local model id is `Qwen3.5-9B-4bit` (must match a model loaded by the gateway's fusion-mlx upstream — check `~/claude-home/fusion-mlx/start.sh status`). Override per call with `MLXClient(...).chat(model=...)` or by constructing a custom `ModelConfig`.
 
 ```bash
-export FUSION_MLX_API_KEY="<gateway-client-key>"   # e.g. fg-admin-key
+export FUSION_CLIENT_KEY="<gateway-client-key>"   # obtain from the gateway admin API
 ```
 
 ### Install

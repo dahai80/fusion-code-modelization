@@ -7,6 +7,7 @@ htmlcov/
 .pytest_cache/
 .agent_comm_state/
 .fusion/
+.fusion-code-modelization.pid
 ARCHITECTURE_COMPLIANCE.md
 CLAUDE.md
 PLAN.md

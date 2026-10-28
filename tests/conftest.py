@@ -10,6 +10,12 @@ def pytest_configure(config):
     markexpr = (config.option.markexpr or "").strip()
     is_live_only = markexpr == "live"
     if not is_live_only:
-        for key in ("FUSION_SERVER_API_KEY", "FUSION_MLX_API_KEY", "MLX_API_KEY", "OPENAI_API_KEY"):
+        for key in (
+            "FUSION_CLIENT_KEY",
+            "FUSION_SERVER_API_KEY",
+            "FUSION_MLX_API_KEY",
+            "MLX_API_KEY",
+            "OPENAI_API_KEY",
+        ):
             os.environ.pop(key, None)
     os.environ.setdefault("FUSION_ALLOWED_HOSTS", "127.0.0.1,localhost,testserver")

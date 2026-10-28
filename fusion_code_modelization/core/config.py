@@ -5,23 +5,14 @@ import os
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from fusion_core.config import client_key
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_LOCAL_MODEL = "Qwen3.5-9B-4bit"
 DEFAULT_GATEWAY_URL = "http://localhost:11432/v1"
 GATEWAY_PORT = 11432
 DEFAULT_SERVER_PORT = 11459
-
-
-def _resolve_api_key() -> str:
-    for env_name in ("FUSION_MLX_API_KEY", "MLX_API_KEY"):
-        key = os.environ.get(env_name, "")
-        if key:
-            return key
-    logger.warning(
-        "No API key found in FUSION_MLX_API_KEY/MLX_API_KEY; set FUSION_MLX_API_KEY to the fusion-gateway client key"
-    )
-    return ""
 
 
 def _env_float(name: str, default: float) -> float:
@@ -71,7 +62,7 @@ class ModelConfig:
     base_url: str = field(default_factory=lambda: _env_str("FUSION_GATEWAY_URL", DEFAULT_GATEWAY_URL))
     retry_attempts: int = field(default_factory=lambda: _env_int("FUSION_RETRY_ATTEMPTS", 2))
     retry_delay: float = 1.0
-    api_key: str = field(default_factory=_resolve_api_key)
+    api_key: str = field(default_factory=client_key)
 
     def to_chat_params(self) -> dict:
         return {

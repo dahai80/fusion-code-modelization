@@ -6,8 +6,9 @@ import socket
 from typing import Any
 
 import httpx
+from fusion_core.config import client_key
 
-from ..core.config import DEFAULT_LOCAL_MODEL, _resolve_api_key
+from ..core.config import DEFAULT_LOCAL_MODEL
 from .models import NodeInfo, NodeStatus
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def _build_url(node: NodeInfo, path: str) -> str:
 class NodeClient:
     def __init__(self, default_timeout: float = 10.0):
         self.default_timeout = default_timeout
-        api_key = _resolve_api_key()
+        api_key = client_key()
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def health_check(self, node: NodeInfo) -> bool:

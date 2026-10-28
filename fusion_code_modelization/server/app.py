@@ -10,10 +10,11 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from fusion_core.config import client_key
 from pydantic import BaseModel
 
 from fusion_code_modelization import __version__
-from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL, _resolve_api_key
+from fusion_code_modelization.core.config import DEFAULT_GATEWAY_URL
 from fusion_code_modelization.session import SessionEngine, SessionStore
 from fusion_code_modelization.workflow import WorkflowExecutor
 
@@ -55,14 +56,6 @@ class _Metrics:
             "workflow_total": self.workflow_total,
             "workflow_failed": self.workflow_failed,
         }
-
-
-def _resolve_server_api_key() -> str:
-    for env_name in ("FUSION_SERVER_API_KEY", "FUSION_MLX_API_KEY", "MLX_API_KEY"):
-        key = os.environ.get(env_name, "")
-        if key:
-            return key
-    return ""
 
 
 def _allowed_hosts() -> set[str]:
@@ -162,9 +155,9 @@ def create_app(
     app = FastAPI(title="Fusion-Code-Modelization REST API", version=__version__, lifespan=lifespan)
     engine = SessionEngine(store=SessionStore(base_dir=base_dir) if base_dir else SessionStore())
     gateway_url = mlx_url or DEFAULT_GATEWAY_URL
-    gateway_api_key = _resolve_api_key()
+    gateway_api_key = client_key()
     executor = WorkflowExecutor(mlx_url=gateway_url)
-    expected_key = api_key if api_key is not None else _resolve_server_api_key()
+    expected_key = api_key if api_key is not None else client_key()
     limiter = _RateLimiter(max_requests=rate_limit)
     allowed_hosts = _allowed_hosts()
     metrics = _Metrics()
