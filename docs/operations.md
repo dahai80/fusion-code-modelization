@@ -1,3 +1,20 @@
+---
+doc_id: fusion-code-modelization/operations-guide
+product: fusion-code-modelization
+class: app
+entry: service
+doc_type: guide
+title: {zh: "运维指南", en: "Operations guide"}
+audience: engineer
+status: draft
+version: 0.7.5
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - start.sh
+  - fusion_code_modelization/server
+---
+
 # Operations Guide
 
 Production operations guide for the fusion-code-modelization REST API server.

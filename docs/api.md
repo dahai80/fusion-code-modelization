@@ -1,3 +1,19 @@
+---
+doc_id: fusion-code-modelization/module-api
+product: fusion-code-modelization
+class: app
+entry: service
+doc_type: api-reference
+title: {zh: "逐模块 Python API 参考", en: "Per-module Python API reference"}
+audience: engineer
+status: draft
+version: 0.7.5
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - fusion_code_modelization
+---
+
 # Fusion-Code-Modelization API Reference
 
 ---

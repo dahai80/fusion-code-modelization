@@ -1,3 +1,20 @@
+---
+doc_id: fusion-code-modelization/changelog
+product: fusion-code-modelization
+class: app
+entry: service
+doc_type: changelog
+title: {zh: "变更日志", en: "Changelog"}
+audience: engineer
+status: draft
+version: 0.7.5
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - CHANGELOG.md
+  - pyproject.toml
+---
+
 # Changelog
 
 All notable changes to fusion-code-modelization are documented here.

@@ -1,3 +1,20 @@
+---
+doc_id: fusion-code-modelization/readme-cn
+product: fusion-code-modelization
+class: app
+entry: service
+doc_type: readme
+title: {zh: "Fusion-Code-Modelization 遗留代码现代化工具集（中文）", en: "Fusion-Code-Modelization legacy code modernization toolkit (Chinese)"}
+audience: engineer
+status: draft
+version: 0.7.5
+updated: 2026-11-07
+owner: @dahai
+source_of_truth:
+  - README_CN.md
+  - pyproject.toml
+---
+
 <div align="center">
 
 # Fusion-Code-Modelization
