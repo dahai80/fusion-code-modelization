@@ -21,7 +21,15 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.7.5] — 2026-10-28
+## [0.7.6] — 2026-11-07
+
+### Added
+
+- **Fusion docs-system v1.1 adoption (#36)**: hardened validator `ci/validate_docs.py` + PR-gated `.github/workflows/docs.yml`; Tier 0 `docs/product-page.md` + `docs/get-started.md`; Tier 1 `docs/api-reference.md` (13 REST/WS routes), `docs/config-reference.md` (10 env vars), `docs/troubleshooting.md`; frontmatter on all in-scope markdown; validator: `scanned 14 docs | ERROR 0 | WARN 0`.
+
+### Fixed
+
+- **CI lint**: 25 ruff UP-rule violations in `ci/validate_docs.py` (PEP 604 unions, lowercase generics, redundant `open()` modes, `collections.abc` imports); lint job green on ruff 0.17.
 
 ### Fixed
 
