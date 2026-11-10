@@ -185,6 +185,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `offline <action> [--mode] [--package-dir]` | 离线部署管理（detect/capabilities/prepare/validate/restore） |
 | `trace <action> [--artifact-type] [--artifact-id]` | 端到端可追溯（create/link/forward/backward/report） |
 | `agent-comm <action> [--agents] [--collab-id]` | Agent 跨机通信（create/submit/conflict/resolve/complete/list/status） |
+| `recon --target [--parity-modernized]` | 经 REA MCP 对遗留目标做证据级侦察（MCP 不可用时降级为无侦察；见 docs/recon.md） |
 | `version` | 显示版本信息 |
 | `serve [--host] [--port] [--mlx-url]` | 启动 REST API 服务器（默认 `127.0.0.1:11459`） |
 | `--json` | 全局标志：以 JSON 输出结果 |

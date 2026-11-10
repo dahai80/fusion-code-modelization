@@ -21,6 +21,17 @@ All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-11-10
+
+### Added
+
+- **REA evidence-grade recon engine (#37)**: new `recon/` module mounting an external REA MCP server (`npx rea-agents`, MIT) over stdio. `ReconEngine` runs a tool plan (open_binary target mount, then `inspect_macho` → `batch_decompile` → `export_evidence_bundle`; plan overridable) against a customer-owned legacy target and writes versioned, auditable artifacts (`recon/<run_id>/manifest.json`, `artifact_version: 1`) including an injection-ready `context_section` for the coder toolset. `ParityChecker` compares legacy vs modernized behavior via REA runtime probes (`trace_feature`, `trace_call_path`) — parity verdicts cite probe evidence, not bare source diffs. New CLI subcommand `recon` (now 23 subcommands).
+- **Fail-closed MCP spawn gating**: subprocess spawn requires the command's basename in `FUSION_FCM_MCP_STDIO_ALLOW` (empty/unset = deny all).
+- **Degradation contract**: any MCP failure (allowlist deny, spawn error, protocol error, timeout) → `status="skipped"`; the modernization pipeline continues without recon. 100% offline constraint preserved.
+- New doc `docs/recon.md` (docs-system v1.1 frontmatter, validator-clean).
+
+Docs: README/README_CN command tables gain the `recon` row.
+
 ## [0.7.6] — 2026-11-07
 
 ### Added
@@ -30,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - **CI lint**: 25 ruff UP-rule violations in `ci/validate_docs.py` (PEP 604 unions, lowercase generics, redundant `open()` modes, `collections.abc` imports); lint job green on ruff 0.17.
+
+## [0.7.5] — 2026-10-28
 
 ### Fixed
 
@@ -42,6 +55,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Docs
 
 - README / README_CN / docs/operations.md updated to `FUSION_CLIENT_KEY` (removed the `fg-admin-key` placeholder example — audit 1025 §1.5 repeat offender).
+
+## [0.7.4] — 2026-10-26
 
 ### Fixed
 

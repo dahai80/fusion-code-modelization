@@ -174,6 +174,7 @@ fusion-code-modelization doc-gen api.py --type=api --stream
 | `offline <action> [--mode] [--package-dir]` | Offline deployment management (detect/capabilities/prepare/validate/restore) |
 | `trace <action> [--artifact-type] [--artifact-id]` | End-to-end traceability (create/link/forward/backward/report) |
 | `agent-comm <action> [--agents] [--collab-id]` | Agent cross-machine communication (create/submit/conflict/resolve/complete/list/status) |
+| `recon --target [--parity-modernized]` | Evidence-grade recon of a legacy target via REA MCP (degrades to no-recon when MCP unavailable; see docs/recon.md) |
 | `version` | Show version info |
 | `serve [--host] [--port] [--mlx-url]` | Start the REST API server (default `127.0.0.1:11459`) |
 | `--json` | Global flag: output results as JSON |

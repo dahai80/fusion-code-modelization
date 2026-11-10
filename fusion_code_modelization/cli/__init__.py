@@ -239,6 +239,18 @@ def main():
     ac.add_argument("--agent-id", default="", help="Agent ID")
     ac.add_argument("--resolution", default="", help="Conflict resolution description")
 
+    # recon (issue #37: evidence-grade REA MCP integration)
+    rc = sub.add_parser("recon", help="Evidence-grade recon of a legacy target via REA MCP")
+    rc.add_argument("--target", required=True, help="Legacy target path (customer-owned / authorized)")
+    rc.add_argument("--parity-modernized", default="", help="Modernized target path — also run the REA parity loop")
+    rc.add_argument(
+        "--parity-query", default="", help="Feature query for the trace_feature parity probe (required for parity)"
+    )
+    rc.add_argument("--data-dir", default="", help="Artifact data dir (default ~/.fusion/code_mod)")
+    rc.add_argument("--mcp-command", default="npx", help="MCP server command (must be in FUSION_FCM_MCP_STDIO_ALLOW)")
+    rc.add_argument("--mcp-args", default="-y rea-agents mcp", help="Space-separated MCP server args")
+    rc.add_argument("--timeout", type=float, default=120.0, help="Per-request MCP timeout (seconds)")
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -271,6 +283,7 @@ def main():
         "offline": lambda: _cmd_offline(args),
         "trace": lambda: _cmd_trace(args),
         "agent-comm": lambda: _cmd_agent_comm(args),
+        "recon": lambda: asyncio.run(_cmd_recon(args)),
         "serve": lambda: _cmd_serve(args),
     }
     try:
@@ -1214,3 +1227,35 @@ def _cmd_agent_comm(args):
             print(f"  Results: {len(task.results)} submitted")
         else:
             print(f"Collaboration {args.collab_id} not found")
+
+
+async def _cmd_recon(args):
+    from fusion_code_modelization.recon import ParityChecker, ReconEngine
+
+    # issue #37: evidence-grade recon via REA MCP. Any MCP problem degrades to
+    # status="skipped" — printed loudly, exit stays non-fatal (pipeline parity).
+    mcp_args = args.mcp_args.split() if args.mcp_args else []
+    kwargs = {"data_dir": args.data_dir or None, "command": args.mcp_command, "args": mcp_args, "timeout": args.timeout}
+    result = await ReconEngine(**kwargs).run(args.target)
+    if result["status"] == "completed":
+        print(f"Recon completed: run_id={result['run_id']} artifact={result.get('artifact_path') or '(not written)'}")
+        for item in result["findings"]:
+            marker = "ERROR" if item["isError"] else "ok"
+            preview = item["evidence"][:80].replace("\n", " ")
+            print(f"  [{marker}] {item['tool']}: {preview}")
+    else:
+        print(f"Recon skipped: {result.get('reason', 'unknown')}")
+    if args.parity_modernized:
+        probes = [{"tool": "trace_feature", "arguments": {"query": args.parity_query}}] if args.parity_query else None
+        parity = await ParityChecker(**kwargs).check(args.target, args.parity_modernized, probes=probes)
+        if parity["status"] == "completed":
+            print(
+                f"Parity: verdict={parity['verdict']} matched={parity['matched_probes']}/{parity['total_probes']} "
+                f"artifact={parity.get('artifact_path') or '(not written)'}"
+            )
+            for comp in parity["comparison"]:
+                print(f"  [{'match' if comp['match'] else 'DIVERGE'}] {comp['probe']}")
+        else:
+            print(f"Parity skipped: {parity.get('reason', 'unknown')}")
+    if _global_flags.json_output:
+        print(json.dumps({"recon": result}, ensure_ascii=False))
