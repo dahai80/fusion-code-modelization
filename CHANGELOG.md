@@ -7,8 +7,8 @@ doc_type: changelog
 title: {zh: "变更日志", en: "Changelog"}
 audience: engineer
 status: draft
-version: 0.7.5
-updated: 2026-11-07
+version: 0.8.1
+updated: 2026-11-16
 owner: "@dahai"
 source_of_truth:
   - CHANGELOG.md
@@ -20,6 +20,12 @@ source_of_truth:
 All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
+
+## [0.8.1] — 2026-11-16
+
+### Changed
+
+- **CI efficiency retrofit (#38, per fusion#2 checklist)**: `concurrency` group per ref with `cancel-in-progress` on `ci.yml` and `docs.yml` (superseded runs cancel instead of queueing); pip download cache on the test job keyed on `pyproject.toml` (fusion-core stays a fresh git install — moving ref); `paths-ignore` for docs-only changes on `ci.yml` push/PR so md-only commits skip the test jobs while `docs.yml` still validates them. Assessed and declined: test sharding (suite ~90s, wall <3min, under the ~5min threshold) and a nightly full tier (single fast tier already authoritative). Baseline wall 2m38s (`test (3.12)` 2m36s critical path); post-merge after-minutes recorded in PR #39.
 
 ## [0.8.0] — 2026-11-10
 
