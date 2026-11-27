@@ -7,8 +7,8 @@ doc_type: changelog
 title: {zh: "变更日志", en: "Changelog"}
 audience: engineer
 status: draft
-version: 0.8.1
-updated: 2026-11-16
+version: 0.8.2
+updated: 2026-11-27
 owner: "@dahai"
 source_of_truth:
   - CHANGELOG.md
@@ -20,6 +20,12 @@ source_of_truth:
 All notable changes to fusion-code-modelization are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
+
+## [0.8.2] — 2026-11-27
+
+### Fixed
+
+- **Distribution metadata spelling (#40, PR #41)**: the `[project] description` in `pyproject.toml` still carried the pre-rename `Fusion-Code-Modernization` spelling while the directory, package, CLI entry point, and GitHub repo all use the canonical `Fusion-Code-Modelization` name (v0.6.2 rename, issue #6). Aligned the registry/distribution-facing description; no code or directory changes. Historical changelog notes documenting the rename itself are intentional and remain.
 
 ## [0.8.1] — 2026-11-16
 
